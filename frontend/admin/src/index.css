@@ -1,0 +1,121 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================
+   CogniFlow Admin — 深色 Arknights 主题
+   参考设计规范 2.1 节
+   ============================================================ */
+
+:root {
+  /* 背景层级 */
+  --bg-primary:      #0A0E14;
+  --bg-secondary:    #141920;
+  --bg-tertiary:     #1C2330;
+  --bg-hover:        #1C2330;
+
+  /* 边框 */
+  --border-default:  #252D3A;
+  --border-light:    rgba(0, 212, 228, 0.08);
+  --border-accent:   rgba(0, 212, 228, 0.25);
+
+  /* 强调色 */
+  --accent-primary:  #00D4E4;
+  --accent-deep:     #0098A6;
+  --accent-warning:  #F0A050;
+  --accent-success:  #4ECDC4;
+  --accent-danger:   #E0556A;
+
+  /* 文字 */
+  --text-primary:    #E8ECF1;
+  --text-secondary:  #8B95A5;
+  --text-disabled:   #4A5468;
+
+  /* 阴影 */
+  --shadow-card:      0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-dropdown:  0 8px 24px rgba(0, 0, 0, 0.6);
+  --glow-accent:      0 0 12px rgba(0, 212, 228, 0.15);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 全局滚动条 */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-default); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-disabled); }
+
+/* 卡片基础样式 */
+.card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 0 100%);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.card:hover {
+  border-color: var(--border-accent);
+  box-shadow: var(--glow-accent);
+}
+
+/* 表格通用 */
+.table-header {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.table-row {
+  border-bottom: 1px solid var(--border-default);
+  transition: background 0.15s ease;
+}
+.table-row:hover { background: var(--bg-tertiary); }
+
+/* 几何背景纹理 */
+.geo-bg {
+  background-image:
+    linear-gradient(45deg,  transparent 49.5%, rgba(0,212,228,0.04) 49.5%,
+                            rgba(0,212,228,0.04) 50.5%, transparent 50.5%),
+    linear-gradient(-45deg, transparent 49.5%, rgba(0,212,228,0.04) 49.5%,
+                            rgba(0,212,228,0.04) 50.5%, transparent 50.5%);
+  background-size: 40px 40px;
+}
+
+/* 输入框 focus 光晕 */
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: var(--accent-primary) !important;
+  box-shadow: 0 0 0 3px rgba(0,212,228,0.1);
+}
+
+/* 骨架屏 */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg,
+    var(--bg-tertiary) 25%,
+    var(--border-default) 50%,
+    var(--bg-tertiary) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 4px;
+}
+
+/* toast */
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.toast-enter { animation: slide-up 0.25s ease-out; }
