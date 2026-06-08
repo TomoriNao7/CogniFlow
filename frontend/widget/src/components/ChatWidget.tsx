@@ -7,22 +7,16 @@ import QuickReply from './QuickReply';
 import ConnectionError from './ConnectionError';
 
 export default function ChatWidget() {
-  // mockMode = false → connect to real CogniFlow backend
   const { send, sendFeedback, connect } = useWebSocket(false);
   const connectionStatus = useChatStore((s) => s.connectionStatus);
   const messages = useChatStore((s) => s.messages);
 
   return (
     <div
-      className="widget-theme flex flex-col rounded-lg overflow-hidden"
+      className="widget-theme flex flex-col w-full h-full overflow-hidden ark-corner"
       style={{
-        width: '380px',
-        height: '560px',
-        maxWidth: '100vw',
-        maxHeight: '100vh',
         background: 'var(--bg-primary)',
         boxShadow: 'var(--shadow-md)',
-        border: '1px solid var(--border-default)',
       }}
     >
       <ChatHeader />

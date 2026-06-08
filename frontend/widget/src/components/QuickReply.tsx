@@ -1,32 +1,45 @@
-interface Props {
-  onSend: (text: string) => void;
-}
+export default function QuickReply({ onSend }: { onSend: (text: string) => void }) {
+  const items = [
+    '📱 iPhone 15 Pro 什么颜色？',
+    '🎫 现在有什么优惠活动？',
+    '📦 帮我查一下库存',
+    '👑 PLUS 会员有什么权益？',
+  ];
 
-const QUICK_REPLIES = [
-  'iPhone 15 Pro 有什么颜色？',
-  '现在有什么优惠活动？',
-  '帮我查一下库存',
-  'PLUS 会员有什么权益？',
-];
-
-export default function QuickReply({ onSend }: Props) {
   return (
     <div
-      className="flex gap-2 px-3 py-2 overflow-x-auto border-t"
-      style={{ borderColor: 'var(--border-default)' }}
+      className="flex gap-2 px-3 py-2 overflow-x-auto"
+      style={{
+        background: 'var(--bg-primary)',
+        borderTop: '1px solid var(--border-default)',
+      }}
     >
-      {QUICK_REPLIES.map((label) => (
+      {items.map((label) => (
         <button
           key={label}
           onClick={() => onSend(label)}
-          className="flex-shrink-0 px-3 py-1.5 text-xs rounded-full border transition-colors hover:bg-[var(--accent-primary)] hover:text-white hover:border-[var(--accent-primary)]"
+          className="flex-shrink-0 px-3 py-1.5 text-xs tracking-wide transition-all duration-150"
           style={{
-            background: 'var(--bg-secondary)',
+            background: 'var(--bg-tertiary)',
             color: 'var(--text-secondary)',
-            borderColor: 'var(--border-default)',
+            border: '1px solid var(--border-default)',
+            borderRadius: 'var(--radius-sm)',
+            fontFamily: "'JetBrains Mono', monospace",
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'var(--accent-primary)';
+            e.currentTarget.style.color = '#1A1A28';
+            e.currentTarget.style.borderColor = 'var(--accent-primary)';
+            e.currentTarget.style.boxShadow = 'var(--glow-accent)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'var(--bg-tertiary)';
+            e.currentTarget.style.color = 'var(--text-secondary)';
+            e.currentTarget.style.borderColor = 'var(--border-default)';
+            e.currentTarget.style.boxShadow = 'none';
           }}
         >
-          {label}
+          &gt; {label}
         </button>
       ))}
     </div>

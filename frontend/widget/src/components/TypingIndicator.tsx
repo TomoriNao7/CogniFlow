@@ -2,15 +2,25 @@ export default function TypingIndicator() {
   return (
     <div className="flex justify-start">
       <div
-        className="flex items-center gap-1.5 px-3.5 py-3 rounded-lg max-w-[80%] animate-bubble-in"
+        className="flex items-center gap-2 px-4 py-3 max-w-[80%] animate-bubble-in"
         style={{
           background: 'var(--bg-bot-bubble)',
-          borderRadius: '4px 12px 12px 12px',
+          borderRadius: 'var(--radius-sm) var(--radius-lg) var(--radius-lg) var(--radius-lg)',
+          border: '1px solid var(--border-default)',
         }}
       >
-        <span className="w-2 h-2 rounded-full dot-bounce" style={{ background: 'var(--accent-primary)', animation: 'dot-bounce 1.4s infinite ease-in-out both' }} />
-        <span className="w-2 h-2 rounded-full dot-bounce" style={{ background: 'var(--accent-primary)', animation: 'dot-bounce 1.4s 0.2s infinite ease-in-out both' }} />
-        <span className="w-2 h-2 rounded-full dot-bounce" style={{ background: 'var(--accent-primary)', animation: 'dot-bounce 1.4s 0.4s infinite ease-in-out both' }} />
+        <span
+          className="text-xs tracking-wider"
+          style={{
+            color: 'var(--text-secondary)',
+            fontFamily: "'JetBrains Mono', monospace",
+          }}
+        >
+          处理中
+        </span>
+        <span className="w-1.5 h-1.5 dot-bounce" style={{ background: 'var(--accent-primary)', borderRadius: '50%' }} />
+        <span className="w-1.5 h-1.5 dot-bounce" style={{ background: 'var(--accent-primary)', borderRadius: '50%' }} />
+        <span className="w-1.5 h-1.5 dot-bounce" style={{ background: 'var(--accent-primary)', borderRadius: '50%' }} />
       </div>
     </div>
   );

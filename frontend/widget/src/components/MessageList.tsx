@@ -14,21 +14,40 @@ export default function MessageList({ onFeedback }: Props) {
   const connectionStatus = useChatStore((s) => s.connectionStatus);
 
   return (
-    <div className="flex-1 overflow-y-auto px-3 py-4 space-y-3 widget-scrollbar">
+    <div
+      className="flex-1 overflow-y-auto px-3 py-4 space-y-3 widget-scrollbar"
+      style={{ background: 'var(--bg-primary)' }}
+    >
       {messages.length === 0 && !isBotTyping && (
-        <div className="flex flex-col items-center justify-center h-full gap-2" style={{ color: 'var(--text-secondary)' }}>
-          <div className="text-4xl mb-2">
-            {connectionStatus === 'connected' ? '👋' : '🔌'}
+        <div
+          className="flex flex-col items-center justify-center h-full gap-3"
+          style={{ color: 'var(--text-secondary)' }}
+        >
+          <div
+            className="w-16 h-16 flex items-center justify-center"
+            style={{
+              background: 'var(--bg-tertiary)',
+              clipPath: 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)',
+              border: '1px solid var(--border-default)',
+            }}
+          >
+            <span className="text-2xl" style={{ color: 'var(--accent-primary)' }}>◆</span>
           </div>
-          <div className="text-sm font-medium">
+          <div
+            className="text-sm font-bold tracking-wider"
+            style={{
+              fontFamily: "'JetBrains Mono', monospace",
+              color: 'var(--accent-primary)',
+            }}
+          >
             {connectionStatus === 'connected'
-              ? '你好！我是 CogniFlow 智能客服'
-              : '正在连接服务器…'}
+              ? '[ 系统就绪 ] 您好，有什么可以帮您？'
+              : '[ 建立连接中… ]'}
           </div>
-          <div className="text-xs">
+          <div className="text-xs tracking-wide" style={{ color: 'var(--text-secondary)' }}>
             {connectionStatus === 'connected'
-              ? '有什么可以帮你的？请直接输入问题，或点击下方快捷标签。'
-              : '请稍候，首次连接可能需要几秒钟'}
+              ? '请直接输入问题，或点击下方快捷标签。'
+              : '正在连接 CogniFlow 服务…'}
           </div>
         </div>
       )}

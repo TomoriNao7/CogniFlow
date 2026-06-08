@@ -4,7 +4,7 @@ import type { ChatState, Message } from '../types';
 interface ChatActions {
   addMessage: (msg: Message) => void;
   appendToLastBotMessage: (chunk: string) => void;
-  finishStreaming: (messageId: string, trace?: Record<string, unknown>) => void;
+  finishStreaming: (messageId: string, trace?: Record<string, unknown>, content?: string) => void;
   setFeedback: (messageId: string, rating: 'helpful' | 'unhelpful') => void;
   setSessionId: (id: string) => void;
   setConversationId: (id: number) => void;
@@ -35,10 +35,12 @@ export const useChatStore = create<ChatState & ChatActions>((set) => ({
       return { messages: msgs };
     }),
 
-  finishStreaming: (messageId, trace) =>
+  finishStreaming: (messageId: string, trace?: Record<string, unknown>, content?: string) =>
     set((s) => ({
       messages: s.messages.map((m) =>
-        m.id === messageId ? { ...m, isStreaming: false, trace } : m
+        m.id === messageId
+          ? { ...m, isStreaming: false, trace, ...(content !== undefined ? { content } : {}) }
+          : m
       ),
       isBotTyping: false,
     })),

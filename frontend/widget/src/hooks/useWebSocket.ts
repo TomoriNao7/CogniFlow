@@ -47,9 +47,9 @@ export function useWebSocket(mockMode = false) {
           break;
 
         case 'reply':
-          // Finish the streaming bot message with the correct messageId
+          // Finish the streaming bot message and replace with complete reply content
           if (streamingMsgIdRef.current) {
-            finishStreaming(streamingMsgIdRef.current, data.trace);
+            finishStreaming(streamingMsgIdRef.current, data.trace, data.content);
             streamingMsgIdRef.current = '';
           }
           setIsBotTyping(false);

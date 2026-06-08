@@ -1,37 +1,63 @@
-import { Bot } from 'lucide-react';
+import { Hexagon } from 'lucide-react';
 import { useChatStore } from '../store/chatStore';
 import type { ConnectionStatus } from '../types';
 
 const STATUS_LABEL: Record<ConnectionStatus, string> = {
-  connected: '在线',
-  connecting: '连接中…',
-  disconnected: '离线',
-};
-const STATUS_DOT: Record<ConnectionStatus, string> = {
-  connected: 'status-dot',
-  connecting: 'w-2.5 h-2.5 rounded-full bg-[#F0A050] animate-pulse mr-1.5',
-  disconnected: 'w-2.5 h-2.5 rounded-full bg-[#8B95A5] mr-1.5',
+  connected: 'ONLINE',
+  connecting: 'CONNECTING…',
+  disconnected: 'OFFLINE',
 };
 
 export default function ChatHeader() {
   const connectionStatus = useChatStore((s) => s.connectionStatus);
 
   return (
-    <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: 'var(--border-default)' }}>
-      <div className="flex items-center gap-2">
-        <div className="w-8 h-8 flex items-center justify-center rounded-full"
-             style={{ background: 'var(--accent-primary)' }}>
-          <Bot size={18} color="#fff" />
+    <div
+      className="flex items-center justify-between px-4 py-3 ark-header-cut"
+      style={{
+        background: 'var(--bg-secondary)',
+        borderBottom: '1px solid var(--border-default)',
+      }}
+    >
+      {/* 左侧：Logo + 标题 */}
+      <div className="flex items-center gap-3">
+        {/* 六角形图标容器 */}
+        <div
+          className="w-9 h-9 flex items-center justify-center"
+          style={{
+            background: 'var(--accent-primary)',
+            clipPath: 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)',
+          }}
+        >
+          <Hexagon size={16} color="#E0D8CC" fill="none" strokeWidth={2.5} />
         </div>
         <div>
-          <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
-            CogniFlow 客服助手
+          <div
+            className="text-sm font-bold tracking-wider"
+            style={{ color: 'var(--text-primary)', fontFamily: "'JetBrains Mono', monospace" }}
+          >
+            [ CogniFlow ]
+          </div>
+          <div className="text-xs tracking-wide" style={{ color: 'var(--accent-primary)' }}>
+            智能客服助手
           </div>
         </div>
       </div>
-      <div className="flex items-center gap-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
-        <span className={STATUS_DOT[connectionStatus]} />
-        {STATUS_LABEL[connectionStatus]}
+
+      {/* 右侧：连接状态 */}
+      <div className="flex items-center gap-2 text-xs" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+        <span
+          className="status-dot"
+          style={{
+            background:
+              connectionStatus === 'connected' ? 'var(--accent-success)' :
+              connectionStatus === 'connecting' ? 'var(--accent-glow)' :
+              'var(--text-disabled)',
+          }}
+        />
+        <span style={{ color: 'var(--text-secondary)' }}>
+          {STATUS_LABEL[connectionStatus]}
+        </span>
       </div>
     </div>
   );

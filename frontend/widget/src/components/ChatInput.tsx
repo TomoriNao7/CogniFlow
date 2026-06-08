@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Send } from 'lucide-react';
+import { CornerDownRight } from 'lucide-react';
 
 interface Props {
   onSend: (text: string) => void;
@@ -23,17 +23,28 @@ export default function ChatInput({ onSend, disabled }: Props) {
     }
   };
 
+  const canSend = !!text.trim() && !disabled;
+
   return (
-    <div className="flex items-end gap-2 px-3 py-3 border-t" style={{ borderColor: 'var(--border-default)' }}>
+    <div
+      className="flex items-end gap-2 px-3 py-3"
+      style={{
+        background: 'var(--bg-secondary)',
+        borderTop: '1px solid var(--border-default)',
+      }}
+    >
       <textarea
-        className="flex-1 resize-none rounded-lg px-3 py-2 text-sm outline-none"
+        className="flex-1 resize-none px-3 py-2 text-sm outline-none transition-shadow"
         style={{
-          background: 'var(--bg-secondary)',
+          background: 'var(--bg-tertiary)',
           color: 'var(--text-primary)',
+          border: '1px solid var(--border-default)',
+          borderRadius: 'var(--radius-md)',
           maxHeight: '100px',
-          minHeight: '40px',
+          minHeight: '38px',
+          boxShadow: canSend ? 'var(--glow-accent)' : 'none',
         }}
-        placeholder="输入您的问题…"
+        placeholder="> 输入您的问题…"
         rows={1}
         value={text}
         onChange={(e) => setText(e.target.value)}
@@ -41,16 +52,18 @@ export default function ChatInput({ onSend, disabled }: Props) {
         disabled={disabled}
       />
       <button
-        className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-lg transition-colors"
+        className="flex-shrink-0 w-9 h-9 flex items-center justify-center transition-all duration-150"
         style={{
-          background: text.trim() && !disabled ? 'var(--accent-primary)' : '#d0d5dd',
-          color: '#fff',
-          cursor: text.trim() && !disabled ? 'pointer' : 'not-allowed',
+          background: canSend ? 'var(--accent-primary)' : 'var(--border-default)',
+          borderRadius: 'var(--radius-md)',
+          color: canSend ? '#1A1A28' : 'var(--text-disabled)',
+          cursor: canSend ? 'pointer' : 'not-allowed',
+          boxShadow: canSend ? 'var(--glow-accent)' : 'none',
         }}
         onClick={handleSubmit}
-        disabled={!text.trim() || disabled}
+        disabled={!canSend}
       >
-        <Send size={16} />
+        <CornerDownRight size={16} />
       </button>
     </div>
   );
