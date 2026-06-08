@@ -4,22 +4,25 @@ export interface Message {
   role: 'user' | 'bot' | 'system';
   content: string;
   createdAt: number;
-  isStreaming?: boolean;       // 是否正在流式输出中
+  isStreaming?: boolean;
   feedback?: 'helpful' | 'unhelpful';
+  intent?: string;
+  trace?: Record<string, unknown>;
 }
 
-/* WebSocket 收发的 JSON 消息协议 */
+/* 后端 WebSocket → 前端 的消息协议 */
 export type WsIncoming =
-  | { type: 'connected'; sessionId: string }
-  | { type: 'typing' }
-  | { type: 'stream_chunk'; content: string }
-  | { type: 'stream_end'; messageId: string }
-  | { type: 'error'; code: string; detail: string }
-  | { type: 'handoff'; reason: string; queuePosition?: number };
+  | { type: 'intent'; intent: string }
+  | { type: 'chunk'; content: string }
+  | { type: 'reply'; content: string; trace?: Record<string, unknown>; done: boolean }
+  | { type: 'error'; detail: string }
+  | { type: 'handoff'; reason: string; message: string };
 
-export type WsOutgoing =
-  | { type: 'message'; content: string }
-  | { type: 'feedback'; messageId: string; rating: 'helpful' | 'unhelpful' };
+/* 前端 → 后端 WebSocket 的消息协议 */
+export interface WsOutgoing {
+  message: string;
+  conversation_id: number;
+}
 
 /* 会话状态 */
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected';
@@ -27,6 +30,7 @@ export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected';
 export interface ChatState {
   messages: Message[];
   sessionId: string | null;
+  conversationId: number;
   connectionStatus: ConnectionStatus;
   isBotTyping: boolean;
   queuePosition: number | null;

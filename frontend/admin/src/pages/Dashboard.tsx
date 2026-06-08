@@ -1,6 +1,6 @@
 import { MessageSquare, Users, AlertCircle, ThumbsUp, TrendingUp } from 'lucide-react';
 import Card from '../components/ui/Card';
-import Skeleton from '../components/ui/Skeleton';
+import AgentTest from '../components/AgentTest';
 
 /* Mock 数据 */
 const STATS = [
@@ -80,6 +80,9 @@ export default function Dashboard() {
           </div>
         </Card>
       </div>
+
+      {/* 售前 Agent 在线测试 */}
+      <AgentTest />
     </div>
   );
 }

@@ -4,9 +4,10 @@ import type { ChatState, Message } from '../types';
 interface ChatActions {
   addMessage: (msg: Message) => void;
   appendToLastBotMessage: (chunk: string) => void;
-  finishStreaming: (messageId: string) => void;
+  finishStreaming: (messageId: string, trace?: Record<string, unknown>) => void;
   setFeedback: (messageId: string, rating: 'helpful' | 'unhelpful') => void;
   setSessionId: (id: string) => void;
+  setConversationId: (id: number) => void;
   setConnectionStatus: (status: ChatState['connectionStatus']) => void;
   setIsBotTyping: (typing: boolean) => void;
   setQueuePosition: (pos: number | null) => void;
@@ -16,6 +17,7 @@ interface ChatActions {
 export const useChatStore = create<ChatState & ChatActions>((set) => ({
   messages: [],
   sessionId: null,
+  conversationId: 1,
   connectionStatus: 'disconnected',
   isBotTyping: false,
   queuePosition: null,
@@ -33,10 +35,10 @@ export const useChatStore = create<ChatState & ChatActions>((set) => ({
       return { messages: msgs };
     }),
 
-  finishStreaming: (messageId) =>
+  finishStreaming: (messageId, trace) =>
     set((s) => ({
       messages: s.messages.map((m) =>
-        m.id === messageId ? { ...m, isStreaming: false } : m
+        m.id === messageId ? { ...m, isStreaming: false, trace } : m
       ),
       isBotTyping: false,
     })),
@@ -49,6 +51,7 @@ export const useChatStore = create<ChatState & ChatActions>((set) => ({
     })),
 
   setSessionId: (id) => set({ sessionId: id }),
+  setConversationId: (id) => set({ conversationId: id }),
   setConnectionStatus: (status) => set({ connectionStatus: status }),
   setIsBotTyping: (typing) => set({ isBotTyping: typing }),
   setQueuePosition: (pos) => set({ queuePosition: pos }),

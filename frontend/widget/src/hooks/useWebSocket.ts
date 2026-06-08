@@ -3,82 +3,21 @@ import type { WsIncoming, WsOutgoing } from '../types';
 import { useCallback, useEffect, useRef } from 'react';
 
 const WS_URL = 'ws://localhost:8000/ws/chat';
+const HTTP_URL = 'http://localhost:8000/api/v1/chat';
 const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 16000];
 
-/* ---- Mock 回复数据（后端未就绪时使用） ---- */
-const MOCK_REPLIES: Record<string, { chunks: string[]; delay?: number }> = {
-  default: {
-    chunks: [
-      '您好！我是 CogniFlow 智能客服助手，',
-      '很高兴为您服务。\n\n',
-      '当前系统处于 Mock 模式，后端服务尚未连接。',
-      '\n\n您可以尝试以下问题：\n',
-      '• 我想查一下我的订单\n',
-      '• 如何申请退款？\n',
-      '• 这款商品有什么规格？',
-    ],
-    delay: 400,
-  },
-  订单: {
-    chunks: [
-      '正在为您查询最近 30 天的订单信息…\n\n',
-      '查询到以下订单：\n',
-      '1. **订单 #20240601001** — 无线降噪耳机 ×1 — ¥299.00 — 已签收\n',
-      '2. **订单 #20240605003** — 手机保护壳 ×2 — ¥79.80 — 运输中\n\n',
-      '如需查看详情或申请售后，请直接告诉我。',
-    ],
-    delay: 800,
-  },
-  退款: {
-    chunks: [
-      '退款流程如下：\n\n',
-      '1. 在「我的订单」中选择对应订单\n',
-      '2. 点击「申请退款」并选择退款原因\n',
-      '3. 提交后 1-3 个工作日内审核\n',
-      '4. 审核通过后，款项 3-7 个工作日退回原支付方式\n\n',
-      '需要我帮您发起退款吗？请提供您的手机号或订单号。',
-    ],
-    delay: 500,
-  },
-  物流: {
-    chunks: [
-      '您的订单 #20240605003 物流状态：\n\n',
-      '📍 当前已到达「上海市浦东分拣中心」\n',
-      '📦 预计送达时间：2024年6月8日\n',
-      '🚚 承运快递：顺丰速运\n',
-      '📋 运单号：SF1234567890\n\n',
-      '您可以通过快递官网或 App 实时追踪物流动态。',
-    ],
-    delay: 600,
-  },
-};
-
-function getMockReply(userMessage: string): string[] {
-  if (userMessage.includes('订单')) return MOCK_REPLIES.订单.chunks;
-  if (userMessage.includes('退款') || userMessage.includes('退货')) return MOCK_REPLIES.退款.chunks;
-  if (userMessage.includes('物流') || userMessage.includes('快递') || userMessage.includes('到哪'))
-    return MOCK_REPLIES.物流.chunks;
-  return MOCK_REPLIES.default.chunks;
-}
-
-function getMockDelay(userMessage: string): number {
-  if (userMessage.includes('订单')) return MOCK_REPLIES.订单.delay!;
-  if (userMessage.includes('退款') || userMessage.includes('退货')) return MOCK_REPLIES.退款.delay!;
-  if (userMessage.includes('物流') || userMessage.includes('快递')) return MOCK_REPLIES.物流.delay!;
-  return MOCK_REPLIES.default.delay!;
-}
-
 /* ---- Hook ---- */
-export function useWebSocket(mockMode = true) {
+export function useWebSocket(mockMode = false) {
   const {
     addMessage, appendToLastBotMessage, finishStreaming,
     setSessionId, setConnectionStatus, setIsBotTyping,
-    setQueuePosition, messages,
+    setQueuePosition, conversationId,
   } = useChatStore();
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectAttempt = useRef(0);
   const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  const streamingMsgIdRef = useRef<string>('');  // track current streaming bot message
 
   const connect = useCallback(() => {
     if (mockMode) {
@@ -99,34 +38,42 @@ export function useWebSocket(mockMode = true) {
     ws.onmessage = (event) => {
       const data: WsIncoming = JSON.parse(event.data);
       switch (data.type) {
-        case 'connected':
-          setSessionId(data.sessionId);
+        case 'intent':
+          // Backend tells us which intent was classified
           break;
-        case 'typing':
-          setIsBotTyping(true);
-          break;
-        case 'stream_chunk':
+
+        case 'chunk':
           appendToLastBotMessage(data.content);
           break;
-        case 'stream_end':
-          finishStreaming(data.messageId);
+
+        case 'reply':
+          // Finish the streaming bot message with the correct messageId
+          if (streamingMsgIdRef.current) {
+            finishStreaming(streamingMsgIdRef.current, data.trace);
+            streamingMsgIdRef.current = '';
+          }
+          setIsBotTyping(false);
           break;
+
         case 'error':
           addMessage({
             id: 'err-' + Date.now(),
-            role: 'system', content: `[错误] ${data.detail}`,
+            role: 'system',
+            content: `[错误] ${data.detail}`,
             createdAt: Date.now(),
           });
           setIsBotTyping(false);
           break;
+
         case 'handoff':
-          setQueuePosition(data.queuePosition ?? null);
+          setQueuePosition(null);
           addMessage({
             id: 'handoff-' + Date.now(),
             role: 'system',
-            content: `正在为您转接人工客服，当前排队位置：${data.queuePosition ?? '未知'}`,
+            content: data.message,
             createdAt: Date.now(),
           });
+          setIsBotTyping(false);
           break;
       }
     };
@@ -149,47 +96,141 @@ export function useWebSocket(mockMode = true) {
     setConnectionStatus('disconnected');
   }, []);
 
-  const send = useCallback((content: string) => {
-    const userMsgId = 'u-' + Date.now();
-    addMessage({ id: userMsgId, role: 'user', content, createdAt: Date.now() });
+  const send = useCallback(
+    (content: string) => {
+      const userMsgId = 'u-' + Date.now();
+      addMessage({ id: userMsgId, role: 'user', content, createdAt: Date.now() });
 
-    if (mockMode) {
+      // Try WebSocket first, fall back to HTTP
+      if (!mockMode && wsRef.current?.readyState === WebSocket.OPEN) {
+        setIsBotTyping(true);
+        const botMsgId = 'b-' + Date.now();
+        streamingMsgIdRef.current = botMsgId;  // track for finishStreaming
+        addMessage({
+          id: botMsgId,
+          role: 'bot',
+          content: '',
+          createdAt: Date.now(),
+          isStreaming: true,
+        });
+
+        const payload: WsOutgoing = {
+          message: content,
+          conversation_id: conversationId,
+        };
+        wsRef.current.send(JSON.stringify(payload));
+        return;
+      }
+
+      if (!mockMode) {
+        // HTTP fallback
+        sendViaHttp(content);
+        return;
+      }
+
+      // Mock mode — used when backend is not running
       setIsBotTyping(true);
       const botMsgId = 'b-' + Date.now();
-      addMessage({ id: botMsgId, role: 'bot', content: '', createdAt: Date.now(), isStreaming: true });
+      addMessage({
+        id: botMsgId,
+        role: 'bot',
+        content: '',
+        createdAt: Date.now(),
+        isStreaming: true,
+      });
 
-      const chunks = getMockReply(content);
-      const delay = getMockDelay(content);
+      const chunks = [
+        'Mock 模式：后端未连接。',
+        '\n\n请在 backend 目录运行 ',
+        '`uvicorn app.main:app --reload --port 8000` ',
+        '启动后端服务，然后关闭 mock 模式。',
+      ];
       let index = 0;
-
       const typeChunk = () => {
         if (index < chunks.length) {
           appendToLastBotMessage(chunks[index]);
           index++;
-          timerRef.current = setTimeout(typeChunk, delay);
+          timerRef.current = setTimeout(typeChunk, 300);
         } else {
           finishStreaming(botMsgId);
         }
       };
       timerRef.current = setTimeout(typeChunk, 300);
-      return;
-    }
+    },
+    [mockMode, conversationId]
+  );
 
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      const payload: WsOutgoing = { type: 'message', content };
-      wsRef.current.send(JSON.stringify(payload));
-    }
-  }, [mockMode]);
+  const sendViaHttp = async (content: string) => {
+    setIsBotTyping(true);
+    const botMsgId = 'b-' + Date.now();
+    addMessage({
+      id: botMsgId,
+      role: 'bot',
+      content: '',
+      createdAt: Date.now(),
+      isStreaming: true,
+    });
 
-  const sendFeedback = useCallback((messageId: string, rating: 'helpful' | 'unhelpful') => {
-    useChatStore.getState().setFeedback(messageId, rating);
-    if (!mockMode && wsRef.current?.readyState === WebSocket.OPEN) {
-      const payload: WsOutgoing = { type: 'feedback', messageId, rating };
-      wsRef.current.send(JSON.stringify(payload));
-    }
-  }, [mockMode]);
+    try {
+      const res = await fetch(HTTP_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversation_id: conversationId,
+          user_id: 'user_001',
+          message: content,
+        }),
+      });
 
-  useEffect(() => { connect(); return () => disconnect(); }, [connect, disconnect]);
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+      // Replace streaming placeholder with full reply
+      const msgs = useChatStore.getState().messages;
+      const lastIdx = msgs.length - 1;
+      if (lastIdx >= 0 && msgs[lastIdx].id === botMsgId) {
+        finishStreaming(botMsgId, data.trace);
+        // Update the content directly for HTTP (no chunked streaming)
+        useChatStore.setState((s) => ({
+          messages: s.messages.map((m) =>
+            m.id === botMsgId
+              ? { ...m, content: data.reply, isStreaming: false, intent: data.intent }
+              : m
+          ),
+          isBotTyping: false,
+        }));
+      }
+    } catch (err: any) {
+      addMessage({
+        id: 'err-' + Date.now(),
+        role: 'system',
+        content: `[连接失败] 无法连接到后端服务 (${err.message})。请确认后端已启动。`,
+        createdAt: Date.now(),
+      });
+      setIsBotTyping(false);
+    }
+  };
+
+  const sendFeedback = useCallback(
+    (messageId: string, rating: 'helpful' | 'unhelpful') => {
+      useChatStore.getState().setFeedback(messageId, rating);
+      if (!mockMode) {
+        fetch('http://localhost:8000/api/v1/feedback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message_id: parseInt(messageId, 10) || 0, rating }),
+        }).catch(() => {});
+      }
+    },
+    [mockMode]
+  );
+
+  useEffect(() => {
+    connect();
+    return () => disconnect();
+  }, [connect, disconnect]);
 
   return { send, sendFeedback, connect, disconnect };
 }

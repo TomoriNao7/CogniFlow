@@ -7,7 +7,8 @@ import QuickReply from './QuickReply';
 import ConnectionError from './ConnectionError';
 
 export default function ChatWidget() {
-  const { send, sendFeedback, connect } = useWebSocket(true);
+  // mockMode = false → connect to real CogniFlow backend
+  const { send, sendFeedback, connect } = useWebSocket(false);
   const connectionStatus = useChatStore((s) => s.connectionStatus);
   const messages = useChatStore((s) => s.messages);
 
