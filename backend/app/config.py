@@ -29,6 +29,8 @@ class Settings:
     # Model assignments
     intent_model: str = "qwen2.5-1.5b"
     pre_sales_model: str = "qwen-max"
+    during_sales_model: str = "qwen-plus"
+    after_sales_model: str = "qwen-max"
     embedding_model: str = "text-embedding-v3"
 
     # Reranker

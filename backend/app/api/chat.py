@@ -53,12 +53,16 @@ async def feedback(req: FeedbackRequest) -> dict:
 async def list_tools() -> dict:
     from app.tools.registry import tool_registry
 
-    tools = []
-    for spec in tool_registry.list_for_agent(agent_id=1):
-        tools.append({
-            "name": spec.definition.name,
-            "display_name": spec.definition.display_name,
-            "description": spec.definition.description,
-            "version": spec.definition.version,
-        })
-    return {"agent": "pre_sales", "tools": tools}
+    tools: list[dict] = []
+    seen: set[str] = set()
+    for spec in tool_registry.list_all():
+        if spec.definition.name not in seen:
+            seen.add(spec.definition.name)
+            tools.append({
+                "name": spec.definition.name,
+                "display_name": spec.definition.display_name,
+                "description": spec.definition.description,
+                "version": spec.definition.version,
+                "agent_id": spec.agent_id,
+            })
+    return {"agent": "all", "tools": tools}

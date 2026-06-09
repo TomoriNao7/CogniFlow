@@ -57,11 +57,16 @@ def classify_intent(user_query: str) -> IntentResult:
 
 def route_to_agent(intent: IntentResult):
     """Return the appropriate agent instance based on intent."""
-    if intent.target_agent == "pre_sales":
+    if intent.target_agent == "during_sales":
+        from app.agents.during_sales.agent import during_sales_agent
+
+        return during_sales_agent
+    if intent.target_agent == "after_sales":
+        # Fallback to pre_sales until after_sales agent is built
         from app.agents.pre_sales.agent import pre_sales_agent
 
         return pre_sales_agent
-    # Other agents will be wired in later
+    # Default: pre_sales
     from app.agents.pre_sales.agent import pre_sales_agent
 
-    return pre_sales_agent  # default fallback for MVP
+    return pre_sales_agent
