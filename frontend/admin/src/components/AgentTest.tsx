@@ -84,7 +84,7 @@ export default function AgentTest() {
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
           <Wrench size={16} className="inline mr-2" />
-          Agent 测试（售前 + 售中）
+          Agent 测试（售前 + 售中 + 售后）
         </h3>
         <div className="flex items-center gap-3">
           {backendStatus === 'checking' ? (
@@ -121,13 +121,16 @@ export default function AgentTest() {
       >
         {messages.length === 0 && (
           <div className="flex items-center justify-center h-full text-sm" style={{ color: 'var(--text-secondary)' }}>
-            输入消息测试 Agent — 售前：商品咨询/库存/优惠券/会员；售中：订单支付/地址/发票
+            测试 Agent 路由 — 售前(商品/库存/优惠券) · 售中(支付/地址/发票) · 售后(物流/退款/投诉)
           </div>
         )}
         {messages.map((m, i) => (
           <div key={i} className="mb-3">
             <div className="text-xs mb-1" style={{ color: 'var(--text-secondary)' }}>
-              {m.role === 'user' ? '你' : m.role === 'bot' ? (m.intent === 'place_order' ? '售中 Agent' : '售前 Agent') : '系统'}
+              {m.role === 'user' ? '你' : m.role === 'bot' ? (
+                m.intent === 'check_logistics' ? '售后 Agent' :
+                m.intent === 'place_order' ? '售中 Agent' : '售前 Agent'
+              ) : '系统'}
               {m.intent && (
                 <span className="ml-2 px-1.5 py-0.5 rounded text-xs"
                       style={{ background: 'var(--bg-tertiary)', color: 'var(--accent-primary)' }}>
@@ -172,7 +175,7 @@ export default function AgentTest() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="输入测试消息（售前/售中）..."
+          placeholder="输入测试消息（售前/售中/售后）..."
           disabled={backendStatus !== 'online'}
           className="flex-1 px-3 py-2 rounded-lg text-sm border outline-none disabled:opacity-50"
           style={{
@@ -192,13 +195,15 @@ export default function AgentTest() {
           /* 售前 */
           'iPhone 15 Pro 多少钱？',
           '现在有什么优惠活动？',
-          '帮我查一下库存',
           'PLUS 会员有什么权益？',
           /* 售中 */
-          '我的订单支付失败怎么办？',
-          '帮我查一下未支付订单',
-          '我想修改收货地址',
+          '支付失败了怎么办？',
           '帮我开一张发票',
+          '我想修改收货地址',
+          /* 售后 */
+          '我的快递到哪了？',
+          '我要退款退货',
+          '查询退款进度',
         ].map((q) => (
           <button
             key={q}

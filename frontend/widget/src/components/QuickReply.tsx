@@ -4,8 +4,8 @@ export default function QuickReply({ onSend }: { onSend: (text: string) => void 
     '🎫 现在有什么优惠活动？',
     '💳 支付失败了怎么办？',
     '📮 怎么修改收货地址？',
-    '🧾 如何申请发票？',
-    '👑 PLUS 会员有什么权益？',
+    '📦 我的快递到哪了？',
+    '🔄 如何申请退款？',
   ];
 
   return (

@@ -62,10 +62,9 @@ def route_to_agent(intent: IntentResult):
 
         return during_sales_agent
     if intent.target_agent == "after_sales":
-        # Fallback to pre_sales until after_sales agent is built
-        from app.agents.pre_sales.agent import pre_sales_agent
+        from app.agents.after_sales.agent import after_sales_agent
 
-        return pre_sales_agent
+        return after_sales_agent
     # Default: pre_sales
     from app.agents.pre_sales.agent import pre_sales_agent
 
