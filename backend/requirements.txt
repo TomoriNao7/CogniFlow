@@ -15,6 +15,8 @@ langgraph>=0.2.0
 langgraph-checkpoint>=2.0.0
 
 # RAG
+rank-bm25>=0.2.2
+milvus-lite>=3.0
 # For production: pip install FlagEmbedding (bge-reranker)
 # FlagEmbedding>=1.3.0  # uncomment when GPU available
 
