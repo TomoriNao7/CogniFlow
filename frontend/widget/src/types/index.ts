@@ -12,7 +12,7 @@ export interface Message {
 
 /* 后端 WebSocket → 前端 的消息协议 */
 export type WsIncoming =
-  | { type: 'intent'; intent: string }
+  | { type: 'intent'; intent: string; target_agent: string; confidence: number; classifier: string }
   | { type: 'chunk'; content: string }
   | { type: 'reply'; content: string; trace?: Record<string, unknown>; done: boolean }
   | { type: 'error'; detail: string }

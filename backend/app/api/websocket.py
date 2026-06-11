@@ -49,7 +49,13 @@ async def websocket_chat(ws: WebSocket) -> None:
 
             # Stream response
             t0 = time.monotonic()
-            await ws.send_json({"type": "intent", "intent": intent.intent_name})
+            await ws.send_json({
+                "type": "intent",
+                "intent": intent.intent_name,
+                "target_agent": intent.target_agent,
+                "confidence": intent.confidence,
+                "classifier": intent.classifier,
+            })
 
             try:
                 state = await agent.run(
