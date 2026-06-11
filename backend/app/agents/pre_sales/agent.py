@@ -223,6 +223,7 @@ class PreSalesAgent:
             summary_trigger=settings.summary_trigger_turns,
         )
         memory.add_turn("user", state["user_query"])
+        await memory.summarize_async()  # LLM compression when threshold reached
 
         # Use memory's built-in message builder (handles summary + turns)
         messages = memory.to_messages(system_prompt)
@@ -243,6 +244,24 @@ class PreSalesAgent:
 
         reply = resp.choices[0].message.content or ""
         memory.add_turn("assistant", reply)
+
+        # ── Handoff detection ────────────────────────────────────────────
+        # 1. User explicitly requests human
+        if any(kw in state["user_query"] for kw in ["转人工", "人工客服", "找客服", "找人工"]):
+            state["handoff"] = True
+            state["handoff_reason"] = "user_request"
+        # 2. All tool calls failed
+        elif state["tool_results"] and all(not tr.get("success") for tr in state["tool_results"]):
+            state["handoff"] = True
+            state["handoff_reason"] = "tool_failure_all"
+        # 3. No knowledge retrieved and no tools available or called
+        elif not state["retrieved_docs"] and not state["tool_results"] and not state["tool_calls"]:
+            state["handoff"] = True
+            state["handoff_reason"] = "knowledge_gap"
+
+        # Persist memory if Redis store is available
+        if hasattr(memory_store, 'persist'):
+            memory_store.persist(memory)
 
         state["final_response"] = reply
         state["trace"]["model"] = settings.pre_sales_model

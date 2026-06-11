@@ -225,6 +225,7 @@ class DuringSalesAgent:
             summary_trigger=settings.summary_trigger_turns,
         )
         memory.add_turn("user", state["user_query"])
+        await memory.summarize_async()  # LLM compression when threshold reached
 
         messages = memory.to_messages(system_prompt)
 
@@ -244,6 +245,20 @@ class DuringSalesAgent:
 
         reply = resp.choices[0].message.content or ""
         memory.add_turn("assistant", reply)
+
+        # ── Handoff detection ────────────────────────────────────────────
+        if any(kw in state["user_query"] for kw in ["转人工", "人工客服", "找客服", "找人工"]):
+            state["handoff"] = True
+            state["handoff_reason"] = "user_request"
+        elif state["tool_results"] and all(not tr.get("success") for tr in state["tool_results"]):
+            state["handoff"] = True
+            state["handoff_reason"] = "tool_failure_all"
+        elif not state["retrieved_docs"] and not state["tool_results"] and not state["tool_calls"]:
+            state["handoff"] = True
+            state["handoff_reason"] = "knowledge_gap"
+
+        if hasattr(memory_store, 'persist'):
+            memory_store.persist(memory)
 
         state["final_response"] = reply
         state["trace"]["model"] = settings.during_sales_model
