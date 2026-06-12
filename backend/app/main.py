@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.chat import router as chat_router
 from app.api.websocket import router as ws_router
+from app.api.admin import router as admin_router
 
 
 @asynccontextmanager
@@ -56,6 +57,7 @@ app.add_middleware(
 )
 
 app.include_router(chat_router, prefix="/api/v1")
+app.include_router(admin_router, prefix="/api/v1")
 app.include_router(ws_router, prefix="/ws")
 
 
