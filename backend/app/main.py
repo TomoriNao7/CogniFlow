@@ -10,17 +10,24 @@ from app.api.websocket import router as ws_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup: auto-load BM25 index and ensure Milvus collection exists."""
+    """Startup: init DB, load BM25 index, ensure Milvus collection exists."""
+    # Init database tables
+    try:
+        from app.models.engine import init_db
+        await init_db()
+        print("[startup] Database tables ensured")
+    except Exception as e:
+        print(f"[startup] DB init warning: {e}")
+
+    # Load RAG indexes
     try:
         from app.rag.bm25_store import bm25_store, BM25_INDEX_PATH
         from app.rag.vector_store import vector_store
 
-        # Load BM25 index if available
         if os.path.exists(BM25_INDEX_PATH) and not bm25_store.is_ready:
             bm25_store.load(BM25_INDEX_PATH)
             print(f"[startup] BM25 index loaded: {len(bm25_store)} docs")
 
-        # Ensure Milvus collection loaded
         if vector_store.is_ready:
             vector_store.load()
             print("[startup] Milvus collection loaded")
@@ -57,10 +64,22 @@ async def health():
     from app.rag.vector_store import vector_store
     from app.rag.bm25_store import bm25_store
 
+    db_ok = False
+    try:
+        from app.models.engine import engine as db_engine
+        async with db_engine.connect() as conn:
+            await conn.execute(
+                __import__("sqlalchemy").text("SELECT 1")
+            )
+        db_ok = True
+    except Exception:
+        pass
+
     return {
         "status": "ok",
         "agent": "multi",
         "milvus": vector_store.is_ready,
         "bm25": bm25_store.is_ready,
         "bm25_count": len(bm25_store),
+        "database": db_ok,
     }
