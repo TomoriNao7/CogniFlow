@@ -119,3 +119,73 @@ def ingest(rebuild: bool = False) -> dict[str, int]:
         "bm25_count": len(bm25_store),
         "elapsed_ms": elapsed,
     }
+
+
+def ingest_file(file_path: str) -> dict:
+    """Ingest a single file — split → embed → store in Milvus + BM25.
+
+    Returns stats dict. Also persists BM25 index after ingestion.
+    """
+    t0 = time.monotonic()
+    fp = Path(file_path)
+    if not fp.exists():
+        raise FileNotFoundError(f"File not found: {file_path}")
+
+    content = fp.read_text(encoding="utf-8")
+    ft = _file_type(fp)
+    chunks = auto_split(content, ft)
+
+    if not chunks:
+        return {"files": 0, "chunks": 0, "embedded": 0, "milvus_count": 0, "bm25_count": 0}
+
+    # Embed
+    texts = [c.content for c in chunks]
+    vectors: list[list[float]] = []
+    for i in range(0, len(texts), EMBED_BATCH):
+        batch = texts[i : i + EMBED_BATCH]
+        vectors.extend(embedder.embed(batch))
+
+    # Use same root-relative naming convention
+    root = DATA_DIR
+    src = _source_name(fp, root)
+
+    # Milvus rows
+    milvus_rows: list[dict] = []
+    bm25_docs: list[Bm25Doc] = []
+    for idx, (chunk, vec) in enumerate(zip(chunks, vectors)):
+        chunk_id = f"{src}#chunk{chunk.chunk_index}"
+        heading = chunk.metadata.get("heading", "")
+        milvus_rows.append({
+            "chunk_id": chunk_id,
+            "content": chunk.content,
+            "source_document": src,
+            "heading": heading,
+            "chunk_index": chunk.chunk_index,
+            "embedding": vec,
+        })
+        bm25_docs.append(Bm25Doc(
+            chunk_id=chunk_id, content=chunk.content,
+            source_document=src, heading=heading, chunk_index=chunk.chunk_index,
+        ))
+
+    # Ensure collection exists and is loaded
+    if not vector_store.is_ready:
+        vector_store.create_collection()
+    insert_count = vector_store.insert(milvus_rows)
+    vector_store.load()
+
+    # Merge into existing BM25 index and rebuild
+    existing = bm25_store._docs[:] if bm25_store.is_ready else []
+    existing.extend(bm25_docs)
+    bm25_store.build(existing)
+    bm25_store.save(BM25_INDEX_PATH)
+
+    return {
+        "files": 1,
+        "chunks": len(chunks),
+        "embedded": len(vectors),
+        "milvus_count": insert_count,
+        "bm25_count": len(bm25_store),
+        "elapsed_ms": int((time.monotonic() - t0) * 1000),
+        "source": src,
+    }

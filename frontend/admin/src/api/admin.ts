@@ -127,3 +127,25 @@ export const updateAgent = (id: number, body: Record<string, unknown>) =>
 
 // Tools
 export const fetchAdminTools = () => fetchJson<{ tools: ToolRow[] }>(`${BASE}/tools`);
+
+// Upload
+export interface UploadResult {
+  status: string;
+  filename: string;
+  document_id: number;
+  chunks: number;
+  split_method: string;
+  file_type: string;
+  elapsed_ms: number;
+}
+
+export async function uploadDocument(file: File): Promise<UploadResult> {
+  const form = new FormData();
+  form.append('file', file);
+  const res = await fetch(`${BASE}/knowledge/upload`, { method: 'POST', body: form });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+    throw new Error(err.detail || `HTTP ${res.status}`);
+  }
+  return res.json();
+}

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import os
+import shutil
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
-from sqlalchemy import select, func, desc, update
+from fastapi import APIRouter, HTTPException, UploadFile, File
+from pydantic import BaseModel
+from sqlalchemy import select, func, desc
 
 from app.models.database import (
     Agent,
@@ -21,6 +23,11 @@ from app.models.database import (
 from app.models.engine import async_session_factory
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+# Upload destination — project root / data/
+UPLOAD_DIR = str(
+    __import__("pathlib").Path(__file__).parent.parent.parent.parent / "data"
+)
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
@@ -322,3 +329,76 @@ async def list_admin_tools():
                 for t in tools
             ]
         }
+
+
+# ── Knowledge upload ──────────────────────────────────────────────────────────
+
+@router.post("/knowledge/upload")
+async def upload_knowledge(file: UploadFile = File(...)):
+    """Upload a document, save it, and run the ingestion pipeline."""
+    if not file.filename:
+        raise HTTPException(400, "No file selected")
+
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in (".md", ".faq", ".txt"):
+        raise HTTPException(400, f"Unsupported format: {ext}. Only .md, .faq, .txt are supported.")
+
+    # Detect split method
+    split_method = {"md": "structure", "faq": "qa_boundary", "txt": "fixed_size"}.get(
+        ext.lstrip("."), "fixed_size"
+    )
+    file_type = ext.lstrip(".")
+
+    # Save file to data/ directory
+    save_dir = os.path.join(UPLOAD_DIR, file_type)
+    os.makedirs(save_dir, exist_ok=True)
+    save_path = os.path.join(save_dir, file.filename)
+    with open(save_path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+
+    # Run ingestion
+    try:
+        from app.rag.ingestion import ingest_file
+        stats = ingest_file(save_path)
+    except Exception as e:
+        raise HTTPException(500, f"Ingestion failed: {e}")
+
+    # Persist to database
+    doc_id = None
+    try:
+        async with async_session_factory() as session:
+            doc = KnowledgeDocument(
+                title=file.filename,
+                file_type=file_type,
+                split_method=split_method,
+                file_path=save_path,
+                original_filename=file.filename,
+                file_size_bytes=os.path.getsize(save_path),
+                status="active",
+            )
+            session.add(doc)
+            await session.commit()
+            await session.refresh(doc)
+            doc_id = doc.id
+
+            # Create chunk records
+            source = stats.get("source", file.filename)
+            for i in range(stats.get("chunks", 0)):
+                session.add(KnowledgeChunk(
+                    document_id=doc.id,
+                    chunk_index=i,
+                    content="",  # content is in Milvus/BM25
+                ))
+            await session.commit()
+    except Exception as e:
+        print(f"[admin] DB persist warning: {e}")
+
+    return {
+        "status": "ok",
+        "filename": file.filename,
+        "document_id": doc_id,
+        "chunks": stats.get("chunks", 0),
+        "split_method": split_method,
+        "file_type": file_type,
+        "elapsed_ms": stats.get("elapsed_ms", 0),
+    }
