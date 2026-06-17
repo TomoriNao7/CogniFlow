@@ -6,7 +6,7 @@ import os
 import time
 from pathlib import Path
 
-from app.rag.splitter import auto_split, Chunk
+from app.rag.splitter import auto_split, Chunk, extract_text
 from app.rag.embedder import embedder
 from app.rag.vector_store import vector_store
 from app.rag.bm25_store import Bm25Doc, bm25_store
@@ -22,10 +22,10 @@ EMBED_BATCH = 10  # DashScope limit: max 10 texts per request
 
 
 def _collect_files(root: Path) -> list[Path]:
-    """Walk data/ and collect .md and .faq files."""
+    """Walk data/ and collect all supported file types."""
     files: list[Path] = []
     for path in sorted(root.rglob("*")):
-        if path.is_file() and path.suffix.lower() in (".md", ".faq", ".txt"):
+        if path.is_file() and path.suffix.lower() in (".md", ".faq", ".txt", ".pdf", ".docx", ".xlsx"):
             files.append(path)
     return files
 
@@ -33,11 +33,18 @@ def _collect_files(root: Path) -> list[Path]:
 def _file_type(path: Path) -> str:
     """Map file extension to splitter type."""
     ext = path.suffix.lower()
-    if ext in (".md",):
-        return "md"
-    if ext in (".faq",):
-        return "faq"
+    for t in ("md", "faq", "pdf", "docx", "xlsx"):
+        if ext == f".{t}":
+            return t
     return "txt"
+
+
+def _read_file_content(fp: Path) -> str:
+    """Read file content, extracting text for binary formats."""
+    ft = _file_type(fp)
+    if ft in ("pdf", "docx", "xlsx"):
+        return extract_text(str(fp), ft)
+    return fp.read_text(encoding="utf-8")
 
 
 def _source_name(path: Path, root: Path) -> str:
@@ -61,7 +68,7 @@ def ingest(rebuild: bool = False) -> dict[str, int]:
     # Step 1: Split all files into chunks
     all_chunks: list[tuple[Path, Chunk]] = []
     for fp in files:
-        content = fp.read_text(encoding="utf-8")
+        content = _read_file_content(fp)
         ft = _file_type(fp)
         chunks = auto_split(content, ft)
         for c in chunks:
@@ -190,7 +197,7 @@ def ingest_file(file_path: str) -> dict:
     if not fp.exists():
         raise FileNotFoundError(f"File not found: {file_path}")
 
-    content = fp.read_text(encoding="utf-8")
+    content = _read_file_content(fp)
     ft = _file_type(fp)
     chunks = auto_split(content, ft)
 
@@ -268,7 +275,7 @@ def sync_db_all() -> dict:
     docs_created = 0
     chunks_created = 0
     for fp in files:
-        content = fp.read_text(encoding="utf-8")
+        content = _read_file_content(fp)
         ft = _file_type(fp)
         split_method = {"md": "structure", "faq": "qa_boundary", "txt": "fixed_size"}.get(ft, "fixed_size")
         chunks = auto_split(content, ft)

@@ -10,7 +10,8 @@ import { fetchKnowledge, fetchKnowledgeStats, uploadDocument, type DocRow, type 
 
 const METHOD_LABEL: Record<string, string> = {
   md: '文档结构', faq: 'Q&A边界', txt: '固定大小',
-  structure: '文档结构', semantic: '语义切片', qa_boundary: 'Q&A边界', fixed_size: '固定大小',
+  pdf: '语义切片', docx: '语义切片', xlsx: '按行切表',
+  structure: '文档结构', semantic: '语义切片', qa_boundary: 'Q&A边界', fixed_size: '固定大小', row_table: '按行切表',
 };
 
 export default function KnowledgeBase() {
@@ -30,8 +31,8 @@ export default function KnowledgeBase() {
   useEffect(() => { refresh(); }, [refresh]);
 
   const handleFile = async (file: File) => {
-    if (!file.name.match(/\.(md|faq|txt)$/i)) {
-      showToast('error', '仅支持 .md / .faq / .txt 格式');
+    if (!file.name.match(/\.(md|faq|txt|pdf|docx|xlsx)$/i)) {
+      showToast('error', '仅支持 .md / .faq / .txt / .pdf / .docx / .xlsx 格式');
       return;
     }
     setUploading(true);
@@ -118,7 +119,7 @@ export default function KnowledgeBase() {
         <input
           ref={fileInputRef}
           type="file"
-          accept=".md,.faq,.txt"
+          accept=".md,.faq,.txt,.pdf,.docx,.xlsx"
           className="hidden"
           onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = ''; }}
         />
@@ -138,7 +139,7 @@ export default function KnowledgeBase() {
           <>
             <Upload size={36} style={{ color: 'var(--text-disabled)' }} />
             <p className="mt-3 text-sm" style={{ color: 'var(--text-secondary)' }}>拖拽文件到此处，或点击选择文件</p>
-            <p className="mt-1 text-xs" style={{ color: 'var(--text-disabled)' }}>支持 Markdown (.md) / FAQ (.faq) / 纯文本 (.txt)</p>
+            <p className="mt-1 text-xs" style={{ color: 'var(--text-disabled)' }}>支持 Markdown (.md) / FAQ (.faq) / 纯文本 (.txt) / PDF / Word / Excel</p>
           </>
         )}
       </div>

@@ -340,12 +340,15 @@ async def upload_knowledge(file: UploadFile = File(...)):
         raise HTTPException(400, "No file selected")
 
     ext = os.path.splitext(file.filename)[1].lower()
-    if ext not in (".md", ".faq", ".txt"):
-        raise HTTPException(400, f"Unsupported format: {ext}. Only .md, .faq, .txt are supported.")
+    if ext not in (".md", ".faq", ".txt", ".pdf", ".docx", ".xlsx"):
+        raise HTTPException(400, f"Unsupported format: {ext}. Supports .md, .faq, .txt, .pdf, .docx, .xlsx")
 
     # Detect split method
-    split_method = {"md": "structure", "faq": "qa_boundary", "txt": "fixed_size"}.get(
-        ext.lstrip("."), "fixed_size"
+    SPLIT_MAP = {
+        "md": "structure", "faq": "qa_boundary", "txt": "fixed_size",
+        "pdf": "semantic", "docx": "semantic", "xlsx": "row_table",
+    }
+    split_method = SPLIT_MAP.get(ext.lstrip("."), "fixed_size")
     )
     file_type = ext.lstrip(".")
 
