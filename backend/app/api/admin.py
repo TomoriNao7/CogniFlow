@@ -356,47 +356,17 @@ async def upload_knowledge(file: UploadFile = File(...)):
     with open(save_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
 
-    # Run ingestion
+    # Run ingestion (includes DB persistence via _persist_to_db)
     try:
         from app.rag.ingestion import ingest_file
         stats = ingest_file(save_path)
     except Exception as e:
         raise HTTPException(500, f"Ingestion failed: {e}")
 
-    # Persist to database
-    doc_id = None
-    try:
-        async with async_session_factory() as session:
-            doc = KnowledgeDocument(
-                title=file.filename,
-                file_type=file_type,
-                split_method=split_method,
-                file_path=save_path,
-                original_filename=file.filename,
-                file_size_bytes=os.path.getsize(save_path),
-                status="active",
-            )
-            session.add(doc)
-            await session.commit()
-            await session.refresh(doc)
-            doc_id = doc.id
-
-            # Create chunk records
-            source = stats.get("source", file.filename)
-            for i in range(stats.get("chunks", 0)):
-                session.add(KnowledgeChunk(
-                    document_id=doc.id,
-                    chunk_index=i,
-                    content="",  # content is in Milvus/BM25
-                ))
-            await session.commit()
-    except Exception as e:
-        print(f"[admin] DB persist warning: {e}")
-
     return {
         "status": "ok",
         "filename": file.filename,
-        "document_id": doc_id,
+        "document_id": stats.get("document_id"),
         "chunks": stats.get("chunks", 0),
         "split_method": split_method,
         "file_type": file_type,

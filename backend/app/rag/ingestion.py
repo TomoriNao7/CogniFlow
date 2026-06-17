@@ -121,6 +121,65 @@ def ingest(rebuild: bool = False) -> dict[str, int]:
     }
 
 
+def _persist_to_db(
+    file_path: str, chunks: list[Chunk], file_type: str, split_method: str,
+) -> int | None:
+    """Create knowledge_document + knowledge_chunk records in PostgreSQL.
+
+    Returns the document id, or None if DB unavailable.
+    """
+    from pathlib import Path as _P
+
+    try:
+        from app.models.database import KnowledgeDocument, KnowledgeChunk
+        from app.models.engine import async_session_factory
+        import asyncio
+
+        fp = _P(file_path)
+        filename = fp.name
+        file_size = fp.stat().st_size if fp.exists() else 0
+
+        async def _save():
+            async with async_session_factory() as session:
+                from sqlalchemy import select
+                # Check if already exists
+                result = await session.execute(
+                    select(KnowledgeDocument).where(
+                        KnowledgeDocument.original_filename == filename
+                    ).limit(1)
+                )
+                existing = result.scalar_one_or_none()
+                if existing:
+                    return existing.id
+
+                doc = KnowledgeDocument(
+                    title=filename,
+                    file_type=file_type,
+                    split_method=split_method,
+                    file_path=str(fp),
+                    original_filename=filename,
+                    file_size_bytes=file_size,
+                    status="active",
+                )
+                session.add(doc)
+                await session.commit()
+                await session.refresh(doc)
+
+                for chunk in chunks:
+                    session.add(KnowledgeChunk(
+                        document_id=doc.id,
+                        chunk_index=chunk.chunk_index,
+                        content=chunk.content,
+                    ))
+                await session.commit()
+                return doc.id
+
+        return asyncio.run(_save())
+    except Exception as e:
+        print(f"[ingestion] DB persist warning: {e}")
+        return None
+
+
 def ingest_file(file_path: str) -> dict:
     """Ingest a single file — split → embed → store in Milvus + BM25.
 
@@ -180,6 +239,10 @@ def ingest_file(file_path: str) -> dict:
     bm25_store.build(existing)
     bm25_store.save(BM25_INDEX_PATH)
 
+    # Persist to PostgreSQL
+    split_method = {"md": "structure", "faq": "qa_boundary", "txt": "fixed_size"}.get(ft, "fixed_size")
+    doc_id = _persist_to_db(str(fp), chunks, ft, split_method)
+
     return {
         "files": 1,
         "chunks": len(chunks),
@@ -188,4 +251,30 @@ def ingest_file(file_path: str) -> dict:
         "bm25_count": len(bm25_store),
         "elapsed_ms": int((time.monotonic() - t0) * 1000),
         "source": src,
+        "document_id": doc_id,
     }
+
+
+def sync_db_all() -> dict:
+    """Sync all existing data/ files to PostgreSQL without re-embedding.
+
+    Reads each file, splits it (no embedding needed), and creates
+    knowledge_documents + knowledge_chunks records if they don't exist.
+    """
+    files = _collect_files(DATA_DIR)
+    if not files:
+        return {"files": 0, "documents": 0, "chunks": 0}
+
+    docs_created = 0
+    chunks_created = 0
+    for fp in files:
+        content = fp.read_text(encoding="utf-8")
+        ft = _file_type(fp)
+        split_method = {"md": "structure", "faq": "qa_boundary", "txt": "fixed_size"}.get(ft, "fixed_size")
+        chunks = auto_split(content, ft)
+        doc_id = _persist_to_db(str(fp), chunks, ft, split_method)
+        if doc_id:
+            docs_created += 1
+            chunks_created += len(chunks)
+
+    return {"files": len(files), "documents": docs_created, "chunks": chunks_created}
