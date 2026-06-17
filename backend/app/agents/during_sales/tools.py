@@ -150,6 +150,9 @@ def _apply_invoice(order_id: str = "", invoice_type: str = "电子发票", title
 # ── Register tools ────────────────────────────────────────────────────────────
 
 def register_during_sales_tools(agent_id: int = 2) -> None:
+    from app.tools.web_search import register_web_search
+    register_web_search(agent_id=None)
+
     tool_registry.register(
         ToolDefinition(
             name="query_unpaid_order",

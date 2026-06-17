@@ -7,7 +7,7 @@ import time
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.agents.router import classify_intent, route_to_agent
-from app.core.security import content_safety
+from app.core.security import content_safety, mask_sensitive
 
 router = APIRouter(tags=["websocket"])
 
@@ -33,8 +33,9 @@ async def websocket_chat(ws: WebSocket) -> None:
             if not user_message.strip():
                 continue
 
-            # Safety check
-            safety = content_safety.check(user_message)
+            # Mask sensitive info + safety check
+            clean_msg = mask_sensitive(user_message)
+            safety = content_safety.check(clean_msg)
             if not safety.passed:
                 await ws.send_json({
                     "type": "reply",
@@ -44,7 +45,7 @@ async def websocket_chat(ws: WebSocket) -> None:
                 continue
 
             # Intent
-            intent = classify_intent(user_message)
+            intent = classify_intent(clean_msg)
             agent = route_to_agent(intent)
 
             # Stream response
@@ -60,7 +61,7 @@ async def websocket_chat(ws: WebSocket) -> None:
             try:
                 state = await agent.run(
                     conversation_id=conversation_id,
-                    user_query=user_message,
+                    user_query=clean_msg,
                 )
             except Exception:
                 failure_count += 1

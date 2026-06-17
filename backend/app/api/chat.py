@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException
 
 from app.agents.router import classify_intent, route_to_agent
-from app.core.security import Severity, SafetyAction, content_safety
+from app.core.security import Severity, SafetyAction, content_safety, mask_sensitive
 from app.models.database import (
     Conversation,
     Feedback,
@@ -117,8 +117,9 @@ async def _save_trace(message_id: int, state: dict) -> None:
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest) -> ChatResponse:
-    # Step 1: Content safety check
-    safety = content_safety.check(req.message)
+    # Step 1: Mask sensitive info + content safety check
+    clean_msg = mask_sensitive(req.message)
+    safety = content_safety.check(clean_msg)
     if not safety.passed:
         return ChatResponse(
             conversation_id=req.conversation_id,
@@ -127,14 +128,14 @@ async def chat(req: ChatRequest) -> ChatResponse:
         )
 
     # Step 2: Intent classification → route to agent
-    intent = classify_intent(req.message)
+    intent = classify_intent(clean_msg)
     agent = route_to_agent(intent)
 
     # Step 3: Run agent (LangGraph workflow)
     try:
         state = await agent.run(
             conversation_id=req.conversation_id,
-            user_query=req.message,
+            user_query=clean_msg,
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Agent error: {exc}")

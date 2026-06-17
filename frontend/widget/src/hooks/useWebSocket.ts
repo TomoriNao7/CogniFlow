@@ -214,13 +214,13 @@ export function useWebSocket(mockMode = false) {
   };
 
   const sendFeedback = useCallback(
-    (messageId: string, rating: 'helpful' | 'unhelpful') => {
+    (messageId: string, rating: 'helpful' | 'unhelpful', reason?: string) => {
       useChatStore.getState().setFeedback(messageId, rating);
       if (!mockMode) {
         fetch('http://localhost:8000/api/v1/feedback', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message_id: parseInt(messageId, 10) || 0, rating }),
+          body: JSON.stringify({ message_id: parseInt(messageId, 10) || 0, rating, reason: reason || null }),
         }).catch(() => {});
       }
     },

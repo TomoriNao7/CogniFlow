@@ -15,6 +15,7 @@ from app.agents.after_sales.prompt import AFTER_SALES_SYSTEM_PROMPT
 from app.agents.after_sales.tools import register_after_sales_tools
 from app.config import settings
 from app.core.memory import memory_store
+from app.core.resilience import retry_with_backoff, is_retryable, circuit_check
 from app.rag.reranker import Reranker
 from app.rag.retriever import HybridRetriever
 from app.tools.registry import tool_registry
@@ -188,14 +189,26 @@ class AfterSalesAgent:
             if spec is None:
                 results.append({"tool": tc["name"], "success": False, "error": "工具未注册"})
                 continue
+
+            cb = circuit_check(tc["name"])
+            if cb.is_open():
+                results.append({"tool": tc["name"], "success": False, "error": "熔断中，请稍后重试"})
+                continue
+
             try:
                 handler = spec.handler
-                if inspect.iscoroutinefunction(handler):
-                    result = await handler(**tc["arguments"])
-                else:
-                    result = await asyncio.to_thread(
-                        functools.partial(handler, **tc["arguments"])
-                    )
+                async def _call():
+                    if inspect.iscoroutinefunction(handler):
+                        return await handler(**tc["arguments"])
+                    else:
+                        return await asyncio.to_thread(functools.partial(handler, **tc["arguments"]))
+
+                result = await retry_with_backoff(
+                    _call,
+                    max_retries=spec.definition.retry_count,
+                    base_delay=1.0,
+                )
+                circuit_check(tc["name"]).record_success()
                 results.append({
                     "tool": tc["name"],
                     "success": result.success,
@@ -204,6 +217,7 @@ class AfterSalesAgent:
                     "duration_ms": int((time.monotonic() - t0) * 1000),
                 })
             except Exception as exc:
+                circuit_check(tc["name"]).record_failure()
                 results.append({"tool": tc["name"], "success": False, "error": str(exc)})
         state["tool_results"] = results
         state["trace"]["tool_call_results"] = results

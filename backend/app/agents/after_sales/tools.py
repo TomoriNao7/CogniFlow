@@ -178,6 +178,9 @@ def _check_refund_status(refund_id: str = "") -> ToolResult:
 # ── Register tools ────────────────────────────────────────────────────────────
 
 def register_after_sales_tools(agent_id: int = 3) -> None:
+    from app.tools.web_search import register_web_search
+    register_web_search(agent_id=None)
+
     tool_registry.register(
         ToolDefinition(
             name="check_logistics",

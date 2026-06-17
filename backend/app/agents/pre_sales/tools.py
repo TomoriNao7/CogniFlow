@@ -88,6 +88,10 @@ def _check_membership(user_id: str = "") -> ToolResult:
 # ── Register tools ────────────────────────────────────────────────────────────
 
 def register_pre_sales_tools(agent_id: int = 1) -> None:
+    # Also register shared web_search tool
+    from app.tools.web_search import register_web_search
+    register_web_search(agent_id=None)
+
     tool_registry.register(
         ToolDefinition(
             name="query_product",

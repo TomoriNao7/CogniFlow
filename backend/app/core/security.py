@@ -93,5 +93,23 @@ class ContentSafety:
         return "抱歉，我无法处理这个请求。"
 
 
+# ── Sensitive info masking ────────────────────────────────────────────────────
+
+_SENSITIVE_PATTERNS: list[tuple[str, str, str]] = [
+    # (regex, replacement_pattern, description)
+    (r'\b(\d{6})(\d{8,10})(\d{2}[\dXx])\b',  r'\1******\3',   '身份证号'),
+    (r'\b(\d{4})\d{8,12}(\d{4})\b',           r'\1********\2', '银行卡号'),
+    (r'\b(1[3-9]\d)\d{4}(\d{4})\b',            r'\1****\2',     '手机号'),
+    (r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b', r'***@***.***', '邮箱'),
+]
+
+
+def mask_sensitive(text: str) -> str:
+    """Replace sensitive info patterns with masked versions. Returns cleaned text."""
+    for pattern, replacement, _desc in _SENSITIVE_PATTERNS:
+        text = re.sub(pattern, replacement, text)
+    return text
+
+
 # Global singleton
 content_safety = ContentSafety()

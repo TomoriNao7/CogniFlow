@@ -13,7 +13,7 @@ function renderContent(text: string) {
 
 export default function ChatBubble({ message, onFeedback }: {
   message: Message;
-  onFeedback?: (messageId: string, rating: 'helpful' | 'unhelpful') => void;
+  onFeedback?: (messageId: string, rating: 'helpful' | 'unhelpful', reason?: string) => void;
 }) {
   const isUser = message.role === 'user';
   const isSystem = message.role === 'system';
