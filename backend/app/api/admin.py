@@ -349,7 +349,6 @@ async def upload_knowledge(file: UploadFile = File(...)):
         "pdf": "semantic", "docx": "semantic", "xlsx": "row_table",
     }
     split_method = SPLIT_MAP.get(ext.lstrip("."), "fixed_size")
-    )
     file_type = ext.lstrip(".")
 
     # Save file to data/ directory
