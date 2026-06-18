@@ -22,7 +22,8 @@ async def lifespan(app: FastAPI):
 
     # Load RAG indexes
     try:
-        from app.rag.bm25_store import bm25_store, BM25_INDEX_PATH
+        from app.rag.bm25_store import bm25_store
+        from app.rag.ingestion import BM25_INDEX_PATH
         from app.rag.vector_store import vector_store
 
         if os.path.exists(BM25_INDEX_PATH) and not bm25_store.is_ready:
