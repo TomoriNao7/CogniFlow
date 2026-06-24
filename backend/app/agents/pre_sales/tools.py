@@ -52,12 +52,18 @@ _MOCK_MEMBERSHIPS: dict[str, dict] = {
 
 # ── Tool handlers ─────────────────────────────────────────────────────────────
 
+def _normalize(text: str) -> str:
+    """Remove spaces and common separators for fuzzy matching."""
+    return text.lower().replace(" ", "").replace("-", "").replace("_", "")
+
+
 def _query_product(product_name: str = "", specs: str = "") -> ToolResult:
     """Query product information."""
     t0 = time.monotonic()
+    q = _normalize(product_name)
     results = []
     for key, info in _MOCK_PRODUCTS.items():
-        if not product_name or product_name.lower() in key.lower():
+        if not q or q in _normalize(key) or _normalize(info.get("name", "")) in q:
             results.append(info)
     if not results:
         return ToolResult(success=True, data={"products": [], "message": "未找到匹配商品"}, duration_ms=int((time.monotonic() - t0) * 1000))
