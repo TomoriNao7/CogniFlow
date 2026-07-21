@@ -27,5 +27,10 @@ Thumbs.db
 data/.milvus/
 data/.index/
 
+# 项目文档
+前端设计规范.md
+数据库设计文档.md
+立项文档.md
+
 # Node
 node_modules/
