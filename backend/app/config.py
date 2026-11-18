@@ -4,14 +4,14 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# Auto-load .env file from backend/ directory
+# 自动加载 backend/ 目录下的 .env
 _env_path = Path(__file__).parent.parent / ".env"
 if _env_path.exists():
     try:
         from dotenv import load_dotenv
         load_dotenv(_env_path)
     except ImportError:
-        # python-dotenv not installed — parse .env manually
+        # 未装 python-dotenv，手动解析 .env
         with open(_env_path, encoding="utf-8") as _f:
             for _line in _f:
                 _line = _line.strip()
@@ -31,41 +31,67 @@ class Settings:
     # Redis
     redis_url: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
-    # Milvus (Lite: file-based for dev; Server: host:port for prod)
-    milvus_uri: str = os.getenv("MILVUS_URI", "")
-    milvus_host: str = os.getenv("MILVUS_HOST", "localhost")
-    milvus_port: int = int(os.getenv("MILVUS_PORT", "19530"))
-    milvus_collection: str = os.getenv("MILVUS_COLLECTION", "knowledge_chunks")
+    # 向量存储（pgvector —— 向量存放在 knowledge_chunks.embedding）
+    pgvector_collection: str = os.getenv("PGVECTOR_COLLECTION", "knowledge_chunks")
 
     # Qwen API
-    qwen_api_key: str = os.getenv("QWEN_API_KEY", "") or os.getenv("DASHSCOPE_API_KEY", "")
+    # repr=False 是关键：防止 print(settings) / logger.info(settings) 把密钥打进日志
+    qwen_api_key: str = field(
+        default_factory=lambda: (
+            os.getenv("QWEN_API_KEY", "") or os.getenv("DASHSCOPE_API_KEY", "")
+        ),
+        repr=False,
+    )
     qwen_base_url: str = os.getenv(
         "QWEN_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"
     )
 
-    # Model assignments
-    intent_model: str = "qwen2.5-1.5b"
-    pre_sales_model: str = "qwen-max"
-    during_sales_model: str = "qwen-plus"
-    after_sales_model: str = "qwen-max"
-    embedding_model: str = "text-embedding-v3"
+    # 模型分配：全部走 .env，换模型不需要改代码
+    # QWEN_MODEL 是全局默认模型，三个业务 agent 共用
+    llm_model: str = os.getenv("QWEN_MODEL", "qwen-max")
+    # 意图分类与对话摘要共用 INTENT_MODEL；不设则复用 QWEN_MODEL
+    # 想省钱可单独设 INTENT_MODEL=qwen-turbo（只影响这两处小任务）
+    intent_model: str = os.getenv("INTENT_MODEL", "") or llm_model
+    pre_sales_model: str = os.getenv("PRE_SALES_MODEL", "") or llm_model
+    during_sales_model: str = os.getenv("DURING_SALES_MODEL", "") or llm_model
+    after_sales_model: str = os.getenv("AFTER_SALES_MODEL", "") or llm_model
+    embedding_model: str = os.getenv("EMBEDDING_MODEL", "text-embedding-v3")
 
     # Reranker
     reranker_model: str = "bge-reranker-v2-m3"
     reranker_device: str = os.getenv("RERANKER_DEVICE", "cpu")
 
-    # Agent defaults
+    # Agent 默认值
     max_conversation_turns: int = 10
     summary_trigger_turns: int = 8
     tool_retry_count: int = 3
     tool_timeout_ms: int = 5000
     max_handoff_failures: int = 3
 
-    # Retrieval defaults
+    # 检索默认值
     retrieval_top_k: int = 5
     similarity_threshold: float = 0.75
     bm25_weight: float = 0.3
     vector_weight: float = 0.7
+
+    # 深度思考开关
+    # qwen4-max 默认 enable_thinking=true、reasoning_effort=high，
+    # 客服场景下会让首字延迟涨到十几秒、token 成本翻几倍，所以默认关掉。
+    # 需要更强推理时把 .env 里的 QWEN_ENABLE_THINKING 设为 true。
+    enable_thinking: bool = os.getenv("QWEN_ENABLE_THINKING", "false").lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+    def thinking_extra(self, enable: bool | None = None) -> dict[str, bool]:
+        """构造深度思考参数。
+
+        DashScope 兼容模式下 enable_thinking 不是 OpenAI 标准字段，
+        必须通过 request 的 extra_body 传入，否则会被静默忽略。
+        """
+        return {"enable_thinking": self.enable_thinking if enable is None else enable}
 
 
 settings = Settings()

@@ -1,4 +1,4 @@
-"""Web search tool — DuckDuckGo, shared across all agents."""
+"""联网搜索工具：基于 DuckDuckGo，所有 agent 共用。"""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from app.tools.registry import tool_registry
 
 
 def _web_search(query: str = "", max_results: str = "3") -> ToolResult:
-    """Search the web using DuckDuckGo and return results."""
+    """用 DuckDuckGo 联网搜索并返回结果。"""
     t0 = time.monotonic()
     try:
         max_n = min(int(max_results), 5)
@@ -57,7 +57,7 @@ def _web_search(query: str = "", max_results: str = "3") -> ToolResult:
 
 
 def register_web_search(agent_id: int | None = None) -> None:
-    """Register the web_search tool. agent_id=None means available to all agents."""
+    """注册 web_search 工具；agent_id=None 表示所有 agent 可用。"""
     tool_registry.register(
         ToolDefinition(
             name="web_search",
@@ -71,5 +71,5 @@ def register_web_search(agent_id: int | None = None) -> None:
             retry_count=2,
         ),
         _web_search,
-        agent_id=agent_id,  # None = global, available to all agents
+        agent_id=agent_id,  # None 表示全局，所有 agent 可用
     )

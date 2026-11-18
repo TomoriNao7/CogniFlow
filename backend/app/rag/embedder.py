@@ -1,4 +1,4 @@
-"""Embedding service — wraps dashscope text-embedding-v3 via OpenAI-compatible API."""
+"""Embedding 服务：用 OpenAI 兼容接口封装 dashscope text-embedding-v3。"""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from app.config import settings
 
 
 class Embedder:
-    """Text embedder using dashscope / OpenAI-compatible API."""
+    """基于 dashscope / OpenAI 兼容接口的文本 embedding。"""
 
     def __init__(
         self,
@@ -31,7 +31,7 @@ class Embedder:
         return self._client
 
     def embed(self, texts: str | list[str]) -> list[list[float]]:
-        """Embed one or multiple texts. Returns list of vectors (1024-dim)."""
+        """向量化一段或多段文本，返回向量列表（1024 维）。"""
         if isinstance(texts, str):
             texts = [texts]
 
@@ -42,9 +42,9 @@ class Embedder:
         return [d.embedding for d in resp.data]
 
     def embed_query(self, query: str) -> list[float]:
-        """Convenience: embed a single query string."""
+        """便捷方法：向量化单条 query。"""
         return self.embed(query)[0]
 
 
-# Singleton
+# 单例
 embedder = Embedder()

@@ -1,112 +1,87 @@
-"""Milvus Lite vector store — embedded, no server needed."""
+"""基于 pgvector 的向量存储。
+
+向量存放在 `knowledge_chunks.embedding` 列（PostgreSQL + pgvector），
+因此本模块只是对 SQL 余弦检索的一层薄封装——无需独立服务。
+权威 chunk 主键是 `knowledge_chunks.id`（PG 整数），对外暴露为 `db_chunk_id`。
+"""
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
-from pymilvus import (
-    Collection,
-    DataType,
-    FieldSchema,
-    CollectionSchema,
-    MilvusClient,
-    connections,
-    utility,
-)
+from sqlalchemy import text
 
-from app.config import settings
-
-# Milvus Lite uses a local file for storage
-DEFAULT_URI = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-    "data", ".milvus", "cogniflow.db",
-)
-DIM = 1024  # text-embedding-v3 dimension
-COLLECTION = settings.milvus_collection
+from app.models.engine import async_session_factory
 
 
 class VectorStore:
-    """Wraps Milvus Lite for chunk storage and semantic search."""
+    """通过 pgvector 对 knowledge_chunks.embedding 做余弦相似度检索。"""
 
-    def __init__(self, uri: str | None = None) -> None:
-        self.uri = uri or DEFAULT_URI
-        self._client: MilvusClient | None = None
-        self._collection_ready = False
-
-    @property
-    def client(self) -> MilvusClient:
-        if self._client is None:
-            os.makedirs(os.path.dirname(self.uri), exist_ok=True)
-            self._client = MilvusClient(uri=self.uri)
-        return self._client
-
-    def create_collection(self, drop_existing: bool = False) -> None:
-        """Create the knowledge_chunks collection with schema."""
-        if drop_existing and self.client.has_collection(COLLECTION):
-            self.client.drop_collection(COLLECTION)
-
-        if self.client.has_collection(COLLECTION):
-            self._collection_ready = True
-            return
-
-        schema = CollectionSchema(
-            fields=[
-                FieldSchema(name="id", dtype=DataType.INT64, is_primary=True, auto_id=True),
-                FieldSchema(name="chunk_id", dtype=DataType.VARCHAR, max_length=128),
-                FieldSchema(name="content", dtype=DataType.VARCHAR, max_length=8192),
-                FieldSchema(name="source_document", dtype=DataType.VARCHAR, max_length=256),
-                FieldSchema(name="heading", dtype=DataType.VARCHAR, max_length=256),
-                FieldSchema(name="chunk_index", dtype=DataType.INT64),
-                FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=DIM),
-            ],
-            description="CogniFlow knowledge base chunks",
-        )
-
-        index_params = self.client.prepare_index_params()
-        index_params.add_index(
-            field_name="embedding",
-            index_type="AUTOINDEX",
-            metric_type="COSINE",
-        )
-
-        self.client.create_collection(
-            collection_name=COLLECTION,
-            schema=schema,
-            index_params=index_params,
-        )
-        self.client.load_collection(COLLECTION)
+    def __init__(self) -> None:
+        # 表结构由 init_db 负责创建，这里没有 collection 需要建
         self._collection_ready = True
-
-    def insert(self, rows: list[dict[str, Any]]) -> int:
-        """Insert chunk records. Each row: chunk_id, content, source_document, heading, chunk_index, embedding."""
-        if not rows:
-            return 0
-        result = self.client.insert(collection_name=COLLECTION, data=rows)
-        return result["insert_count"]
-
-    def load(self) -> None:
-        """Load collection into memory (required before search)."""
-        if self.client.has_collection(COLLECTION):
-            self.client.load_collection(COLLECTION)
-
-    def search(
-        self, query_vector: list[float], top_k: int = 10
-    ) -> list[dict[str, Any]]:
-        """Semantic search — returns top_k matched chunks with metadata."""
-        self.load()  # ensure collection is in memory (idempotent)
-        results = self.client.search(
-            collection_name=COLLECTION,
-            data=[query_vector],
-            limit=top_k,
-            output_fields=["chunk_id", "content", "source_document", "heading"],
-        )
-        return results[0] if results else []
 
     @property
     def is_ready(self) -> bool:
-        return self._collection_ready or self.client.has_collection(COLLECTION)
+        # PG 表在 lifespan 的 init_db 中创建，pgvector 扩展也在那里确保就绪。
+        return True
+
+    async def create_collection(self, drop_existing: bool = False) -> None:
+        """为保持接口兼容而保留的空实现——schema 由 init_db 统一管理。"""
+
+    async def load(self) -> None:
+        """为保持接口兼容而保留的空实现——pgvector 没有 load 步骤。"""
+
+    async def search(
+        self, query_vector: list[float], top_k: int = 10
+    ) -> list[dict[str, Any]]:
+        """按余弦相似度返回 top_k 个 chunk（1 表示完全相同）。
+
+        `distance` 用 1 - 余弦距离 计算，这样调用方可以沿用
+        「越大越接近」的旧约定。
+        """
+        if top_k <= 0:
+            return []
+
+        # 用字符串字面量 + CAST 传递查询向量：
+        # 走原生 text() SQL 时，asyncpg 不会自动把 Python list 绑成 vector 类型，
+        # 需要先序列化成 '[x,y,z]' 再显式 CAST（避免额外注册 pgvector 的 asyncpg codec）。
+        vec_literal = "[" + ",".join(f"{x:.8f}" for x in query_vector) + "]"
+
+        stmt = text(
+            """
+            SELECT
+                c.id              AS db_chunk_id,
+                c.document_id     AS document_id,
+                c.content         AS content,
+                c.source_document AS source_document,
+                1 - (c.embedding <=> CAST(:qv AS vector)) AS similarity
+            FROM knowledge_chunks c
+            WHERE c.embedding IS NOT NULL
+            ORDER BY c.embedding <=> CAST(:qv AS vector)
+            LIMIT :k
+            """
+        )
+        async with async_session_factory() as session:
+            result = await session.execute(
+                stmt, {"qv": vec_literal, "k": top_k}
+            )
+            rows = result.fetchall()
+
+        return [
+            {
+                "entity": {
+                    "db_chunk_id": row.db_chunk_id,
+                    "chunk_id": str(row.db_chunk_id),
+                    "document_id": row.document_id,
+                    "content": row.content,
+                    "source_document": row.source_document,
+                },
+                "distance": round(float(row.similarity), 4),
+            }
+            for row in rows
+        ]
 
 
-# Singleton
+# 单例
 vector_store = VectorStore()

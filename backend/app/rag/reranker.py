@@ -1,4 +1,4 @@
-"""Cross-encoder reranker. Uses bge-reranker-v2-m3 when available, falls back to score-based ranking."""
+"""Cross-encoder 精排：能用 bge-reranker-v2-m3 就用，否则退化为按 score 排序。"""
 
 from __future__ import annotations
 
@@ -7,11 +7,11 @@ from app.config import settings
 
 
 class Reranker:
-    """Re-ranks retrieval results by relevance.
+    """对检索结果按相关性精排。
 
-    Priority:
-      1. bge-reranker-v2-m3 via FlagEmbedding (if installed and GPU available)
-      2. Score-based fallback with duplication-aware weighting
+    优先级：
+      1. FlagEmbedding 的 bge-reranker-v2-m3（已安装且有 GPU 时）
+      2. fallback：按 score 排序，并做重复内容加权
     """
 
     def __init__(self, model_name: str | None = None) -> None:
@@ -19,7 +19,7 @@ class Reranker:
         self._reranker = None
 
     def _try_load_flag(self) -> None:
-        """Lazy load FlagEmbedding reranker if available."""
+        """按需加载 FlagEmbedding reranker，装不上就跳过。"""
         if self._reranker is not None:
             return
         try:
@@ -30,14 +30,14 @@ class Reranker:
                 device=settings.reranker_device,
             )
         except ImportError:
-            self._reranker = False  # mark as unavailable
+            self._reranker = False  # 标记为不可用
         except Exception:
             self._reranker = False
 
     async def rerank(
         self, query: str, results: list[RetrievalResult],
     ) -> list[RetrievalResult]:
-        """Re-rank results by cross-encoder or score-based fallback."""
+        """精排：优先 cross-encoder，否则走 score fallback。"""
         if not results:
             return results
 
@@ -50,7 +50,7 @@ class Reranker:
     def _flag_rerank(
         self, query: str, results: list[RetrievalResult],
     ) -> list[RetrievalResult]:
-        """Use FlagEmbedding cross-encoder for re-ranking."""
+        """用 FlagEmbedding cross-encoder 精排。"""
         pairs = [[query, r.content] for r in results]
         scores = self._reranker.compute_score(pairs, normalize=True)
 
@@ -65,10 +65,9 @@ class Reranker:
     def _score_rerank(
         self, results: list[RetrievalResult],
     ) -> list[RetrievalResult]:
-        """Fallback score-based re-ranking with diversity boost.
+        """fallback：按 score 排序，并对重复内容做多样性加权。
 
-        Slightly penalizes duplicate content from the same source document
-        to favor diverse results across different knowledge sources.
+        同一源文档的重复内容小幅扣分，让结果更多样。
         """
         sorted_results = sorted(results, key=lambda r: r.score, reverse=True)
 

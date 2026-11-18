@@ -9,7 +9,7 @@ from app.tools.base import ToolDefinition, ToolResult
 
 @dataclass
 class ToolSpec:
-    """Internal representation of a registered tool callable."""
+    """已注册工具可调用对象的内部表示。"""
 
     definition: ToolDefinition
     handler: Callable[..., ToolResult]
@@ -17,7 +17,7 @@ class ToolSpec:
 
 
 class ToolRegistry:
-    """Central registry for all tools. Agent startup pulls its tools from here."""
+    """工具总注册表，Agent 启动时从这里取工具。"""
 
     def __init__(self) -> None:
         self._tools: dict[str, ToolSpec] = {}
@@ -43,7 +43,7 @@ class ToolRegistry:
         return list(self._tools.values())
 
     def to_openai_tools(self, agent_id: int) -> list[dict[str, Any]]:
-        """Export tools as OpenAI-compatible function definitions."""
+        """导出 OpenAI 格式的 function calling 定义。"""
         tools: list[dict[str, Any]] = []
         for spec in self.list_for_agent(agent_id):
             params: dict[str, Any] = {"type": "object", "properties": {}, "required": []}
@@ -67,5 +67,5 @@ class ToolRegistry:
         return tools
 
 
-# Global singleton
+# 全局 singleton
 tool_registry = ToolRegistry()

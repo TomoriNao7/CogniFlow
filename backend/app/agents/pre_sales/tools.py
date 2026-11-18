@@ -1,4 +1,4 @@
-"""Pre-sales agent tools: 查商品、查库存、查优惠券、查会员等级"""
+"""售前 agent 工具：查商品、查库存、查优惠券、查会员等级"""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import time
 from app.tools.base import ToolDefinition, ToolParameterDef, ToolResult
 from app.tools.registry import tool_registry
 
-# ── Mock data ─────────────────────────────────────────────────────────────────
+# ── Mock 假数据 ─────────────────────────────────────────────────────────────────
 
 _MOCK_PRODUCTS: dict[str, dict] = {
     "iphone15": {
@@ -50,15 +50,15 @@ _MOCK_MEMBERSHIPS: dict[str, dict] = {
 }
 
 
-# ── Tool handlers ─────────────────────────────────────────────────────────────
+# ── 工具处理函数 ─────────────────────────────────────────────────────────────
 
 def _normalize(text: str) -> str:
-    """Remove spaces and common separators for fuzzy matching."""
+    """去掉空格和常见分隔符，方便模糊匹配。"""
     return text.lower().replace(" ", "").replace("-", "").replace("_", "")
 
 
 def _query_product(product_name: str = "", specs: str = "") -> ToolResult:
-    """Query product information."""
+    """查询商品信息。"""
     t0 = time.monotonic()
     q = _normalize(product_name)
     results = []
@@ -71,7 +71,7 @@ def _query_product(product_name: str = "", specs: str = "") -> ToolResult:
 
 
 def _check_inventory(product_name: str = "", sku: str = "") -> ToolResult:
-    """Check inventory for a product."""
+    """查询商品库存。"""
     t0 = time.monotonic()
     key = f"iphone15-256" if "256" in product_name or "256" in sku else "iphone15-512"
     data = _MOCK_INVENTORY.get(key, [])
@@ -79,22 +79,22 @@ def _check_inventory(product_name: str = "", sku: str = "") -> ToolResult:
 
 
 def _check_coupons(user_id: str = "") -> ToolResult:
-    """Check available coupons."""
+    """查询可用优惠券。"""
     t0 = time.monotonic()
     return ToolResult(success=True, data={"coupons": _MOCK_COUPONS}, duration_ms=int((time.monotonic() - t0) * 1000))
 
 
 def _check_membership(user_id: str = "") -> ToolResult:
-    """Check user membership level and benefits."""
+    """查询用户会员等级与权益。"""
     t0 = time.monotonic()
     info = _MOCK_MEMBERSHIPS.get(user_id, _MOCK_MEMBERSHIPS["user_002"])
     return ToolResult(success=True, data={"membership": info}, duration_ms=int((time.monotonic() - t0) * 1000))
 
 
-# ── Register tools ────────────────────────────────────────────────────────────
+# ── 注册工具 ────────────────────────────────────────────────────────────
 
 def register_pre_sales_tools(agent_id: int = 1) -> None:
-    # Also register shared web_search tool
+    # 顺带注册全局 web_search
     from app.tools.web_search import register_web_search
     register_web_search(agent_id=None)
 

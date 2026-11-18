@@ -7,9 +7,11 @@ build/
 .venv/
 venv/
 
-# Environment
+# Environment（.env 含真实密钥，必须忽略）
 .env
 .env.local
+.env.*
+!.env.example
 
 # IDE
 .idea/
@@ -34,3 +36,9 @@ data/.index/
 
 # Node
 node_modules/
+
+# 原型（静态原型页 + 截图，不入库）
+prototype/
+
+# AI 协作规约（本地文件，不入库）
+AGENTS.md

@@ -1,4 +1,4 @@
-"""During-sales agent tools: 查未支付订单、查询支付状态、修改地址、申请发票"""
+"""售中 agent 工具：查未支付订单、查询支付状态、修改地址、申请发票"""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from app.tools.base import ToolDefinition, ToolParameterDef, ToolResult
 from app.tools.registry import tool_registry
 
-# ── Mock data ─────────────────────────────────────────────────────────────────
+# ── Mock 假数据 ─────────────────────────────────────────────────────────────────
 
 _MOCK_ORDERS: list[dict] = [
     {
@@ -52,10 +52,10 @@ def _generate_order_id() -> str:
     return f"INV{datetime.now().strftime('%Y%m%d%H%M%S')}"
 
 
-# ── Tool handlers ─────────────────────────────────────────────────────────────
+# ── 工具处理函数 ─────────────────────────────────────────────────────────────
 
 def _query_unpaid_order(user_id: str = "") -> ToolResult:
-    """Query unpaid or in-process orders for a user."""
+    """查询用户未支付或支付处理中的订单。"""
     t0 = time.monotonic()
     unpaid = [o for o in _MOCK_ORDERS if o["status"] in ("unpaid", "payment_failed")]
     result = {
@@ -71,7 +71,7 @@ def _query_unpaid_order(user_id: str = "") -> ToolResult:
 
 
 def _check_payment_status(order_id: str = "") -> ToolResult:
-    """Check payment status for a specific order."""
+    """查询指定订单的支付状态。"""
     t0 = time.monotonic()
     order = next((o for o in _MOCK_ORDERS if o["order_id"] == order_id), None)
     if not order:
@@ -92,7 +92,7 @@ def _check_payment_status(order_id: str = "") -> ToolResult:
 
 
 def _modify_address(order_id: str = "", new_address: str = "") -> ToolResult:
-    """Modify shipping address for an unpaid/shipped order."""
+    """修改未支付/已发货订单的收货地址。"""
     t0 = time.monotonic()
     order = next((o for o in _MOCK_ORDERS if o["order_id"] == order_id), None)
     if not order:
@@ -103,7 +103,7 @@ def _modify_address(order_id: str = "", new_address: str = "") -> ToolResult:
             error="仅已支付未发货的订单支持修改地址",
             data={"order_id": order_id, "current_status": order["status"]},
         )
-    # Simulate address change
+    # 模拟地址变更
     old_addr = order.get("shipping_address", "")
     order["shipping_address"] = new_address
     return ToolResult(
@@ -119,7 +119,7 @@ def _modify_address(order_id: str = "", new_address: str = "") -> ToolResult:
 
 
 def _apply_invoice(order_id: str = "", invoice_type: str = "电子发票", title: str = "个人") -> ToolResult:
-    """Apply for an invoice for a paid order."""
+    """为已支付订单申请发票。"""
     t0 = time.monotonic()
     order = next((o for o in _MOCK_ORDERS if o["order_id"] == order_id), None)
     if not order:
@@ -147,7 +147,7 @@ def _apply_invoice(order_id: str = "", invoice_type: str = "电子发票", title
     )
 
 
-# ── Register tools ────────────────────────────────────────────────────────────
+# ── 注册工具 ────────────────────────────────────────────────────────────
 
 def register_during_sales_tools(agent_id: int = 2) -> None:
     from app.tools.web_search import register_web_search

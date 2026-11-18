@@ -1,4 +1,4 @@
-"""After-sales Agent — LangGraph workflow orchestrating RAG + Tools + LLM generation."""
+"""售后 Agent：LangGraph 编排 RAG + 工具 + 生成。"""
 
 from __future__ import annotations
 
@@ -39,10 +39,9 @@ class AgentState(TypedDict):
 
 
 class AfterSalesAgent:
-    """LangGraph-based after-sales agent.
+    """售后 Agent（LangGraph）。
 
-    Flow:
-      retrieve → rerank → decide_tools → call_tools → generate → END
+    流程：retrieve → rerank → decide_tools → call_tools → generate → END
     """
 
     AGENT_ID = 3
@@ -95,17 +94,36 @@ class AfterSalesAgent:
 
         return workflow.compile()
 
-    # ── Nodes ──────────────────────────────────────────────────────────────
+    # ── 节点 ──────────────────────────────────────────────────────────────
 
     async def _retrieve(self, state: AgentState) -> AgentState:
         t0 = time.monotonic()
         try:
             results = await self.retriever.retrieve(state["user_query"])
             state["retrieved_docs"] = [
-                {"id": r.chunk_id, "content": r.content, "score": r.score, "source": r.source_document}
+                {
+                    "id": r.chunk_id,
+                    "content": r.content,
+                    "score": r.score,
+                    "source": r.source_document,
+                    "db_chunk_id": r.db_chunk_id,
+                    "document_id": r.document_id,
+                }
                 for r in results
             ]
             state["trace"]["retrieval_count"] = len(results)
+            state["trace"]["retrieval_query"] = state["user_query"]
+            state["trace"]["retrieval_top_k"] = self.retriever.top_k
+            state["trace"]["retrieval_chunks"] = [
+                {
+                    "chunk_id": r.db_chunk_id,
+                    "document_id": r.document_id,
+                    "score": r.score,
+                    "source": "hybrid",
+                    "rank_position": i + 1,
+                }
+                for i, r in enumerate(results)
+            ]
         except Exception as exc:
             state["retrieved_docs"] = []
             state["trace"]["retrieval_error"] = str(exc)
@@ -167,6 +185,8 @@ class AfterSalesAgent:
             tools=tools_schema,
             tool_choice="auto",
             temperature=0.1,
+            # 工具决策要快，强制关深度思考
+            extra_body=settings.thinking_extra(False),
         )
         state["trace"]["decision_ms"] = int((time.monotonic() - t0) * 1000)
 
@@ -239,7 +259,7 @@ class AfterSalesAgent:
             summary_trigger=settings.summary_trigger_turns,
         )
         memory.add_turn("user", state["user_query"])
-        await memory.summarize_async()  # LLM compression when threshold reached
+        await memory.summarize_async()  # 达到阈值时用 LLM 压缩摘要
 
         messages = memory.to_messages(system_prompt)
 
@@ -255,12 +275,13 @@ class AfterSalesAgent:
             messages=messages,
             temperature=0.7,
             max_tokens=2048,
+            extra_body=settings.thinking_extra(),
         )
 
         reply = resp.choices[0].message.content or ""
         memory.add_turn("assistant", reply)
 
-        # ── Handoff detection ────────────────────────────────────────────
+        # ── 转人工判定 ────────────────────────────────────────────
         if any(kw in state["user_query"] for kw in ["转人工", "人工客服", "找客服", "找人工"]):
             state["handoff"] = True
             state["handoff_reason"] = "user_request"
@@ -281,12 +302,12 @@ class AfterSalesAgent:
         state["trace"]["generation_ms"] = int((time.monotonic() - t0) * 1000)
         return state
 
-    # ── Conditional edge ────────────────────────────────────────────────────
+    # ── 条件边 ────────────────────────────────────────────────────
 
     def _should_call_tools(self, state: AgentState) -> str:
         return "tools" if state["tool_calls"] else "generate"
 
-    # ── Public API ──────────────────────────────────────────────────────────
+    # ── 对外 API ──────────────────────────────────────────────────────────
 
     async def run(self, conversation_id: int, user_query: str) -> AgentState:
         initial: AgentState = {
@@ -306,5 +327,5 @@ class AfterSalesAgent:
         return await self.graph.ainvoke(initial)
 
 
-# Singleton
+# 单例
 after_sales_agent = AfterSalesAgent()

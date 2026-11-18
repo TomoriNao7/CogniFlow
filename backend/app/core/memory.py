@@ -1,4 +1,4 @@
-"""Conversation memory with LLM summarization and Redis persistence."""
+"""对话记忆：LLM 摘要压缩 + Redis 持久化。"""
 
 from __future__ import annotations
 
@@ -11,10 +11,10 @@ from app.config import settings
 
 @dataclass
 class ConversationMemory:
-    """Holds the current session context for a conversation.
+    """保存一次会话的当前上下文。
 
-    Short-term memory: last N turns, with LLM summary compression when exceeding
-    the trigger threshold. Summary is persisted so long-running sessions stay compact.
+    短期记忆：最近 N 轮；超过触发阈值就做 LLM 摘要压缩，
+    摘要持久化，让长会话保持精简。
     """
 
     conversation_id: int
@@ -29,19 +29,19 @@ class ConversationMemory:
             self._compress()
 
     def _compress(self) -> None:
-        """Summarize older turns to keep context window manageable.
+        """摘要较早的轮次，控制上下文窗口。
 
-        Uses LLM summarization when available; falls back to truncation.
+        有 LLM 就用 LLM 摘要，否则退化为截断。
         """
-        older = self.turns[:-4]  # keep last 4 turns verbatim
+        older = self.turns[:-4]  # 最近 4 轮保留原文
         if not older:
             return
         self.turns = self.turns[-4:]
 
     async def summarize_async(self) -> str:
-        """Async LLM-based summary of current turns. Returns the new summary string.
+        """用 LLM 异步摘要当前轮次，返回新摘要。
 
-        Called externally after add_turn() so the caller can await the LLM call.
+        由 add_turn() 之后外部调用，方便调用方 await LLM。
         """
         if len(self.turns) < 6:
             return self.summary
@@ -60,13 +60,13 @@ class ConversationMemory:
         except Exception:
             pass
 
-        # Fallback: string truncation
+        # fallback：字符串截断
         lines = [f"[{t.role}]: {t.content[:200]}" for t in older]
         self.summary = _merge_summaries(self.summary, "对话摘要: " + "; ".join(lines))
         return self.summary
 
     def to_messages(self, system_prompt: str = "") -> list[dict[str, str]]:
-        """Build the message list ready for LLM injection."""
+        """构造可直接注入 LLM 的消息列表。"""
         messages: list[dict[str, str]] = []
         if system_prompt:
             prompt = system_prompt
@@ -78,7 +78,7 @@ class ConversationMemory:
         return messages
 
     def to_messages_for_classification(self) -> str:
-        """Return the last user message for intent classification."""
+        """取最后一条用户消息，用于意图分类。"""
         for t in reversed(self.turns):
             if t.role == "user":
                 return t.content
@@ -119,7 +119,7 @@ class Turn:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
-# ── LLM summarization ────────────────────────────────────────────────────────
+# ── LLM 摘要 ────────────────────────────────────────────────────────
 
 _SUMMARY_PROMPT = """你是一个对话摘要助手。请用 1-2 句话提取以下对话的关键信息。
 
@@ -134,7 +134,7 @@ _SUMMARY_PROMPT = """你是一个对话摘要助手。请用 1-2 句话提取以
 
 
 async def _summarize_llm(previous_summary: str, turns: list[Turn]) -> str:
-    """Call Qwen to generate a conversation summary."""
+    """调用 Qwen 生成对话摘要。"""
     dialogue = "\n".join(f"[{t.role}]: {t.content}" for t in turns)
 
     try:
@@ -147,13 +147,15 @@ async def _summarize_llm(previous_summary: str, turns: list[Turn]) -> str:
         )
 
         resp = await client.chat.completions.create(
-            model=settings.intent_model,  # qwen2.5-1.5b — fast & cheap for summary
+            model=settings.intent_model,  # 摘要属小任务，跟随 INTENT_MODEL
             messages=[
                 {"role": "system", "content": _SUMMARY_PROMPT.format(previous=previous_summary or "无")},
                 {"role": "user", "content": dialogue},
             ],
             temperature=0.2,
             max_tokens=256,
+            # 摘要是小任务，强制关掉深度思考：否则 8s 超时必炸，摘要永远失败
+            extra_body=settings.thinking_extra(False),
         )
         return (resp.choices[0].message.content or "").strip()
     except Exception:
@@ -161,7 +163,7 @@ async def _summarize_llm(previous_summary: str, turns: list[Turn]) -> str:
 
 
 def _merge_summaries(old: str, new: str) -> str:
-    """Merge old and new summaries, avoiding duplication."""
+    """合并新旧摘要，避免重复。"""
     if not old:
         return new
     if len(new) > len(old):
@@ -169,10 +171,10 @@ def _merge_summaries(old: str, new: str) -> str:
     return old
 
 
-# ── Memory stores ─────────────────────────────────────────────────────────────
+# ── 记忆存储 ─────────────────────────────────────────────────────────────
 
 class MemoryStore:
-    """In-memory store — fast, suitable for dev / single-process."""
+    """内存存储：快，适合开发 / 单进程。"""
 
     def __init__(self) -> None:
         self._store: dict[int, ConversationMemory] = {}
@@ -193,10 +195,10 @@ class MemoryStore:
 
 
 class RedisMemoryStore:
-    """Redis-backed memory store — persistent, suitable for multi-process / production."""
+    """Redis 存储：持久化，适合多进程 / 生产。"""
 
     _KEY_PREFIX = "cogniflow:memory:"
-    _TTL = 86400  # 24 hours
+    _TTL = 86400  # 24 小时
 
     def __init__(self, redis_url: str | None = None) -> None:
         self._redis_url = redis_url or settings.redis_url
@@ -244,7 +246,7 @@ class RedisMemoryStore:
             pass
 
     def persist(self, memory: ConversationMemory) -> None:
-        """Persist a memory instance back to Redis (call after updates)."""
+        """把记忆写回 Redis（更新后调用）。"""
         self._save(memory)
 
     def remove(self, conversation_id: int) -> None:
@@ -254,7 +256,7 @@ class RedisMemoryStore:
             pass
 
 
-# ── Global singleton (auto-selects Redis if available) ────────────────────────
+# ── 全局 singleton（有 Redis 则优先用 Redis） ────────────────────────
 
 def _create_store():
     store = RedisMemoryStore()

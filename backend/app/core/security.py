@@ -35,7 +35,7 @@ class SafetyResult:
     safe_content: str = ""
 
 
-# Pre-loaded rules matching schema.sql defaults
+# 预置规则，与 schema.sql 默认值一致
 DEFAULT_RULES: list[SafetyRule] = [
     SafetyRule("regex", r"\b\d{15,19}\b", Severity.SEVERE, SafetyAction.SILENT_BLOCK, "疑似银行卡号"),
     SafetyRule("regex", r"\b1[3-9]\d{9}\b", Severity.MODERATE, SafetyAction.BLOCK, "手机号"),
@@ -47,7 +47,7 @@ DEFAULT_RULES: list[SafetyRule] = [
 
 
 class ContentSafety:
-    """Content safety checker — runs before intent classification."""
+    """内容安全检查，在意图分类之前执行。"""
 
     def __init__(self, rules: list[SafetyRule] | None = None) -> None:
         self._rules = rules or DEFAULT_RULES
@@ -85,7 +85,7 @@ class ContentSafety:
         return {Severity.MILD: 1, Severity.MODERATE: 2, Severity.SEVERE: 3}[s]
 
     def block_message(self, severity: Severity, action: SafetyAction) -> str:
-        """Return a neutral rejection message — never expose detection internals."""
+        """返回中性拒答话术，不暴露检测细节。"""
         if action == SafetyAction.SILENT_BLOCK:
             return "抱歉，我无法处理这个请求。"
         if severity == Severity.MODERATE:
@@ -93,10 +93,10 @@ class ContentSafety:
         return "抱歉，我无法处理这个请求。"
 
 
-# ── Sensitive info masking ────────────────────────────────────────────────────
+# ── 敏感信息脱敏 ────────────────────────────────────────────────────
 
 _SENSITIVE_PATTERNS: list[tuple[str, str, str]] = [
-    # (regex, replacement_pattern, description)
+    # (regex, 替换模板, 说明)
     (r'\b(\d{6})(\d{8,10})(\d{2}[\dXx])\b',  r'\1******\3',   '身份证号'),
     (r'\b(\d{4})\d{8,12}(\d{4})\b',           r'\1********\2', '银行卡号'),
     (r'\b(1[3-9]\d)\d{4}(\d{4})\b',            r'\1****\2',     '手机号'),
@@ -105,11 +105,11 @@ _SENSITIVE_PATTERNS: list[tuple[str, str, str]] = [
 
 
 def mask_sensitive(text: str) -> str:
-    """Replace sensitive info patterns with masked versions. Returns cleaned text."""
+    """把敏感信息替换为脱敏形式，返回清洗后文本。"""
     for pattern, replacement, _desc in _SENSITIVE_PATTERNS:
         text = re.sub(pattern, replacement, text)
     return text
 
 
-# Global singleton
+# 全局 singleton
 content_safety = ContentSafety()

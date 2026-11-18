@@ -1,0 +1,27 @@
+# 无答案 / 超纲问题集（拒答门控评估用，不进 Hit@k 报表）
+#
+# 为什么单独放一个文件：
+#   Hit@k / MRR / nDCG 都要求「存在相关 chunk」才有定义。这些问题在语料里没有答案，
+#   强行放进 queries.jsonl 会让 relevant 为空、指标算不出来或被悄悄跳过。
+#   它们要评的是另一件事：**系统是否在证据不足时拒答，而不是编一个答案**。
+#
+# 用途：
+#   P4 门控层（Quality Gate / Answer Verify）与 P7 之后的端到端评估。
+#   指标不是 Hit@k，而是：拒答率（应拒的都拒了）、误拒率（不该拒的拒了——用 queries.jsonl 反向测）。
+#
+# 字段：
+#   query         用户问题
+#   expect        refuse = 应拒答；clarify = 应反问澄清而不是硬答
+#   why           为什么在语料里答不了（写清楚，面试时这就是「拒答边界」的定义）
+#   near_doc      最接近的相关文档（若模型检索到了它，说明是「擦边答」——半对半错最难发现）
+
+{"query": "iPhone 16 什么时候发布", "expect": "refuse", "why": "语料最新到 iPhone 15 系列，没有 iPhone 16 的任何信息", "near_doc": "pre_sales / 商品目录完整版"}
+{"query": "帮我写一首关于春天的诗", "expect": "refuse", "why": "非电商客服域请求，不属于知识库覆盖范围", "near_doc": null}
+{"query": "特斯拉 Model 3 现在多少钱", "expect": "refuse", "why": "本平台不销售汽车，语料中无此品类", "near_doc": null}
+{"query": "我订单号 88231 现在配送到哪了", "expect": "clarify", "why": "需要真实订单系统查询，mock 数据里没有这个订单；应引导用户提供订单信息或转人工，不能编造物流状态", "near_doc": "after_sales / 物流配送"}
+{"query": "你们的股票代码是多少，我想买点", "expect": "refuse", "why": "语料不含公司证券信息，也不属于客服应答范围", "near_doc": null}
+{"query": "这台手机能刷第三方 ROM 吗", "expect": "refuse", "why": "语料未涉及刷机；且属改装行为，会触及保修条款但无明确说明", "near_doc": "after_sales / 保修与维修政策"}
+{"query": "跨境电商怎么报关，需要交多少关税", "expect": "refuse", "why": "语料只覆盖国内配送与发票，无跨境报关流程", "near_doc": "during_sales / 发票规则"}
+{"query": "去年双 11 我买的那台笔记本现在还能价保吗", "expect": "refuse", "why": "价保期最长 15 天，去年订单早已超期；且用户未提供具体日期，语料无法核实", "near_doc": "pre_sales / 价格保护与保价"}
+{"query": "能不能把我的会员等级直接升到 PLUS", "expect": "refuse", "why": "语料只说明升级条件（年消费或付费开通），没有人工直接升级的通道", "near_doc": "pre_sales / 会员政策"}
+{"query": "我买的电视屏幕碎了，能走三包吗", "expect": "clarify", "why": "语料无电视品类；且碎屏是否属质量问题需按举证条款判断，应先澄清商品与情形", "near_doc": "after_sales / 保修与维修政策"}

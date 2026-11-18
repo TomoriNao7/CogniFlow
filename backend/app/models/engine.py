@@ -1,13 +1,14 @@
-"""Database engine and session management."""
+"""数据库 engine 与 session 管理。"""
 
 from __future__ import annotations
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 
 from app.config import settings
 from app.models.database import Base
 
-# Async engine — use asyncpg driver
+# async engine，驱动用 asyncpg
 engine = create_async_engine(
     settings.database_url,
     echo=False,
@@ -15,7 +16,7 @@ engine = create_async_engine(
     max_overflow=10,
 )
 
-# Session factory
+# session 工厂
 async_session_factory = async_sessionmaker(
     engine,
     class_=AsyncSession,
@@ -24,12 +25,29 @@ async_session_factory = async_sessionmaker(
 
 
 async def init_db() -> None:
-    """Create all tables if they don't exist (idempotent)."""
+    """创建所有表（幂等），并补齐已存在表缺失的列。"""
     async with engine.begin() as conn:
+        # knowledge_chunks.embedding 需要 pgvector 扩展
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
+
+        # create_all 只建新表、不改已有表。已有库需要幂等补列。
+        await conn.execute(text(
+            """
+            DO $$
+            BEGIN
+                IF to_regclass('public.knowledge_chunks') IS NOT NULL THEN
+                    ALTER TABLE knowledge_chunks
+                        ADD COLUMN IF NOT EXISTS source_document VARCHAR(256);
+                    ALTER TABLE knowledge_chunks
+                        ADD COLUMN IF NOT EXISTS embedding vector(1024);
+                END IF;
+            END $$;
+            """
+        ))
 
 
 async def get_session() -> AsyncSession:
-    """Yield an async session for dependency injection."""
+    """提供 async session 供依赖注入。"""
     async with async_session_factory() as session:
         yield session

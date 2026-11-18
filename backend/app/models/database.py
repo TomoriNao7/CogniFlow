@@ -1,4 +1,4 @@
-"""CogniFlow ORM models — matches schema.sql MVP core tables."""
+"""CogniFlow ORM 模型，对应 schema.sql 的 MVP 核心表。"""
 
 from __future__ import annotations
 
@@ -18,12 +18,14 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+from pgvector.sqlalchemy import Vector
+
 
 class Base(DeclarativeBase):
     pass
 
 
-# ── Model registry ────────────────────────────────────────────────────────────
+# ── 模型注册表 ────────────────────────────────────────────────────────────
 
 class ModelRegistry(Base):
     __tablename__ = "model_registry"
@@ -45,7 +47,7 @@ class ModelRegistry(Base):
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
 
-# ── Content safety ────────────────────────────────────────────────────────────
+# ── 内容安全 ────────────────────────────────────────────────────────────
 
 class ContentSafetyRule(Base):
     __tablename__ = "content_safety_rules"
@@ -64,7 +66,7 @@ class ContentSafetyRule(Base):
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
 
-# ── Admin ──────────────────────────────────────────────────────────────────────
+# ── 管理员 ──────────────────────────────────────────────────────────────────────
 
 class AdminUser(Base):
     __tablename__ = "admin_users"
@@ -80,7 +82,7 @@ class AdminUser(Base):
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
 
-# ── Agents ─────────────────────────────────────────────────────────────────────
+# ── Agent ─────────────────────────────────────────────────────────────────────
 
 class Agent(Base):
     __tablename__ = "agents"
@@ -112,7 +114,7 @@ class AgentRetrievalParam(Base):
     agent: Mapped[Agent] = relationship(back_populates="retrieval_params")
 
 
-# ── Intent definitions ────────────────────────────────────────────────────────
+# ── 意图定义 ────────────────────────────────────────────────────────
 
 class IntentDefinition(Base):
     __tablename__ = "intent_definitions"
@@ -147,7 +149,7 @@ class SlotDefinition(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
-# ── Tools ──────────────────────────────────────────────────────────────────────
+# ── 工具 ──────────────────────────────────────────────────────────────────────
 
 class Tool(Base):
     __tablename__ = "tools"
@@ -200,7 +202,7 @@ class AgentTool(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
-# ── Users ──────────────────────────────────────────────────────────────────────
+# ── 用户 ──────────────────────────────────────────────────────────────────────
 
 class User(Base):
     __tablename__ = "users"
@@ -236,7 +238,7 @@ class UserTag(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
-# ── Conversations & messages ───────────────────────────────────────────────────
+# ── 会话与消息 ───────────────────────────────────────────────────
 
 class Conversation(Base):
     __tablename__ = "conversations"
@@ -309,7 +311,26 @@ class TraceFunctionCall(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
-# ── Feedback ───────────────────────────────────────────────────────────────────
+class TraceRetrievalChunk(Base):
+    """每次 trace 的检索命中明细，记录命中了哪个 chunk、排第几、来自哪路检索。
+
+    与 schema.sql 的 trace_retrieval_chunks 对齐，额外加 `source` 列，
+    用于区分命中的 chunk 由哪路检索贡献（bm25 / vector / hybrid / rerank）。
+    """
+
+    __tablename__ = "trace_retrieval_chunks"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    trace_id: Mapped[int] = mapped_column(ForeignKey("message_traces.id"), nullable=False)
+    document_id: Mapped[int] = mapped_column(ForeignKey("knowledge_documents.id"), nullable=False)
+    chunk_id: Mapped[int] = mapped_column(ForeignKey("knowledge_chunks.id"), nullable=False)
+    score: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False)
+    rank_position: Mapped[int] = mapped_column(Integer, nullable=False)
+    source: Mapped[str] = mapped_column(String(16), default="hybrid")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+# ── 反馈 ───────────────────────────────────────────────────────────────────
 
 class Feedback(Base):
     __tablename__ = "feedbacks"
@@ -327,7 +348,7 @@ class Feedback(Base):
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
 
-# ── Knowledge base ─────────────────────────────────────────────────────────────
+# ── 知识库 ─────────────────────────────────────────────────────────────
 
 class KnowledgeDocument(Base):
     __tablename__ = "knowledge_documents"
@@ -338,7 +359,7 @@ class KnowledgeDocument(Base):
     split_method: Mapped[str] = mapped_column(String(32), nullable=False)
     file_path: Mapped[Optional[str]] = mapped_column(String(512))
     original_filename: Mapped[Optional[str]] = mapped_column(String(256))
-    file_size_bytes: Mapped[Optional[int]] = mapped_column(Integer)  # BIGINT in schema
+    file_size_bytes: Mapped[Optional[int]] = mapped_column(Integer)  # schema 中为 BIGINT
     uploaded_by: Mapped[Optional[int]] = mapped_column(ForeignKey("admin_users.id"), nullable=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
     status: Mapped[str] = mapped_column(String(16), default="active")
@@ -354,6 +375,8 @@ class KnowledgeChunk(Base):
     document_id: Mapped[int] = mapped_column(ForeignKey("knowledge_documents.id"), nullable=False)
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    source_document: Mapped[Optional[str]] = mapped_column(String(256))
+    embedding: Mapped[Optional[list[float]]] = mapped_column(Vector(1024))
     retrieval_count: Mapped[int] = mapped_column(Integer, default=0)
     last_retrieved_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
@@ -378,7 +401,7 @@ class ChunkTag(Base):
     tag: Mapped[str] = mapped_column(String(128), nullable=False)
 
 
-# ── Handoff ────────────────────────────────────────────────────────────────────
+# ── 转人工 ────────────────────────────────────────────────────────────────────
 
 class HumanHandoff(Base):
     __tablename__ = "human_handoffs"

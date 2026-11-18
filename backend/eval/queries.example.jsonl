@@ -1,0 +1,25 @@
+# 评估集模板 —— 复制本文件为 queries.jsonl 后填写
+
+# 每行一条 JSON，字段说明：
+#   query    用户问题（口语化，越接近真实客服提问越好）
+#   bucket   五桶之一：单品属性 / 促销与券 / 政策条款 / 售后流程 / 跨实体规则
+#   relevant 人工标注的相关 chunk，用「文档 + 锚点行」表示（不用 chunk 序号）
+
+# doc 与 anchor 的取法：
+#   doc    = chunks_dump.jsonl 里的 document_title，如 "pre_sales / 商品目录完整版"
+#   anchor = 目标 chunk 里的某一行，**整行精确匹配**（前后空白会被 strip）
+#              .md  文件用标题行，如 "## 保价期限"、"### iPhone 15 Pro Max"
+#              .faq 文件用问题行，如 "Q: 退款多久能到账？"
+
+# 为什么用锚点而不用 "文档#chunkN"：
+#   chunkN 会随切分策略重排，一改切分标注就集体失效（跑分表现为全 0，看着像检索崩了）。
+#   锚点只要还在这篇文档里就一直有效 —— 这是不同切分方案共用同一份评估集的前提。
+
+# 注意：
+#   1. 锚点在同一文档内必须唯一；解析时报「锚点命中 N 个 chunk」就要换更具体的锚点
+#   2. 每条至少标 1 个相关 chunk
+#   3. 按五桶分，每桶 ≥8 条，总数 ≥40 条
+
+# 示例（正式填写时可直接在其后追加）：
+{"query": "电子产品的保价期是几天，从什么时候算", "bucket": "政策条款", "relevant": [{"doc": "pre_sales / 价格保护与保价", "anchor": "## 保价期限"}]}
+{"query": "iPhone 15 Pro Max 能用 PHONE618 券吗", "bucket": "跨实体规则", "relevant": [{"doc": "pre_sales / 商品目录完整版", "anchor": "### iPhone 15 Pro Max"}, {"doc": "pre_sales / 促销规则", "anchor": "## 优惠券体系"}]}

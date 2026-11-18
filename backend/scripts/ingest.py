@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Run the document ingestion pipeline — split → embed → store in Milvus + BM25 + PostgreSQL.
+"""运行文档入库流水线 —— 切分 → 落 PG → 向量化 → 向量(pgvector) + BM25。
 
-Usage:
+用法：
     cd backend
-    python scripts/ingest.py               # incremental ingestion
-    python scripts/ingest.py --rebuild     # drop and rebuild from scratch
-    python scripts/ingest.py --sync-db     # sync existing data files to PostgreSQL only
-    python scripts/ingest.py --check       # check if indexes are ready
+    python scripts/ingest.py               # 增量入库
+    python scripts/ingest.py --rebuild     # 清空重建
+    python scripts/ingest.py --sync-db     # 仅把 data/ 文件同步到 PostgreSQL
+    python scripts/ingest.py --check       # 检查索引是否就绪
 """
 
 from __future__ import annotations
@@ -15,11 +15,10 @@ import argparse
 import sys
 import os
 
-# Ensure backend/ is on sys.path
+# 确保 backend/ 在 sys.path 上
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.rag.ingestion import ingest, sync_db_all
-from app.rag.vector_store import vector_store
 from app.rag.bm25_store import bm25_store
 from app.rag.ingestion import BM25_INDEX_PATH
 
@@ -32,12 +31,11 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.check:
-        milvus_ok = vector_store.is_ready
         bm25_ok = bm25_store.is_ready
-        if milvus_ok and bm25_ok:
-            print("✓ RAG indexes are ready")
+        if bm25_ok:
+            print("✓ BM25 index is ready")
         else:
-            print(f"✗ Milvus: {'ready' if milvus_ok else 'not ready'}, BM25: {'ready' if bm25_ok else 'not ready'}")
+            print(f"✗ BM25: {'ready' if bm25_ok else 'not ready'}")
             print("  Run: python scripts/ingest.py [--rebuild]")
         return
 
@@ -53,7 +51,7 @@ def main() -> None:
     print(f"  Files processed:  {stats['files']}")
     print(f"  Chunks created:   {stats['chunks']}")
     print(f"  Vectors embedded: {stats['embedded']}")
-    print(f"  Milvus rows:      {stats['milvus_count']}")
+    print(f"  Vector rows:      {stats['milvus_count']}")
     print(f"  BM25 docs:        {stats['bm25_count']}")
 
 

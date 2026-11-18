@@ -1,0 +1,118 @@
+# 检索评估集（P2 锚点版 + 难度分层，2026-11-17）
+# 每行：{"query": 问题, "bucket": 五桶之一, "difficulty": easy|hard, "relevant": [{"doc": 文档名, "anchor": 锚点行}]}
+# 锚点 = 目标 chunk 内的某一行（整行精确匹配，不是子串包含）。
+#   为什么不用 "文档#chunkN"：N 会随切分策略重排，一改切分标注就集体失效（表现为全 0 分）。
+#   锚点只要还在文档里就一直有效 —— 这是不同切分方案共用同一份评估集的前提。
+# 标注口径：
+#   B1-B4 单跳问题 → 只标「包含答案的那一个 chunk」
+#   B5 跨实体问题 → 标「回答该问题必须同时读到的全部 chunk」（多跳评估的标准做法）
+# difficulty 分层：
+#   easy = 问法与文档措辞接近、答案在一个 chunk 里直白写着（原 44 条）
+#   hard = 口语化指代 / 否定与例外 / 真多跳（需拼 2-3 处信息）/ 非标题词提问
+#   为什么要分层：easy 组已饱和（四桶 Hit@5=1.0），只有 hard 组能区分策略优劣。
+#   报表必须分开报 —— 混在一起会被 easy 组的高分稀释掉全部差异。
+# 说明：无答案/超纲问题不放进本文件（会破坏 Hit@k 的定义），
+#       单独放在 eval/queries_no_answer.jsonl，留给 P4 拒答门控评估。
+
+# ── 单品属性 ──────────────────────────────────────────────────────────────
+{"query": "iPhone 15 Pro 的价格和颜色有哪些", "bucket": "单品属性", "difficulty": "easy", "relevant": [{"doc": "pre_sales / 商品目录", "anchor": "## iPhone 15 Pro"}]}
+{"query": "AirPods Pro 2 多少钱", "bucket": "单品属性", "difficulty": "easy", "relevant": [{"doc": "pre_sales / 商品目录", "anchor": "## AirPods Pro 2"}]}
+{"query": "K8 Pro 键盘有哪些配置可选", "bucket": "单品属性", "difficulty": "easy", "relevant": [{"doc": "pre_sales / 商品目录", "anchor": "## 机械键盘 K8 Pro"}]}
+{"query": "MagSafe 手机壳有几个颜色", "bucket": "单品属性", "difficulty": "easy", "relevant": [{"doc": "pre_sales / 商品目录", "anchor": "## 手机壳 MagSafe"}]}
+{"query": "iPhone 15 Pro Max 256GB 卖多少钱", "bucket": "单品属性", "difficulty": "easy", "relevant": [{"doc": "pre_sales / 商品目录完整版", "anchor": "### iPhone 15 Pro Max"}]}
+{"query": "Samsung Galaxy S24 的屏幕规格是什么", "bucket": "单品属性", "difficulty": "easy", "relevant": [{"doc": "pre_sales / 商品目录完整版", "anchor": "### Samsung Galaxy S24"}]}
+{"query": "MacBook Pro 16 英寸 M4 Pro 的价格是多少", "bucket": "单品属性", "difficulty": "easy", "relevant": [{"doc": "pre_sales / 商品目录完整版", "anchor": "### MacBook Pro 16\" (M4 Pro)"}]}
+{"query": "Sony WH-1000XM4 的续航时间多久", "bucket": "单品属性", "difficulty": "easy", "relevant": [{"doc": "pre_sales / 商品目录完整版", "anchor": "### Sony WH-1000XM4"}]}
+{"query": "PlayStation 5 Slim 光驱版多少钱", "bucket": "单品属性", "difficulty": "easy", "relevant": [{"doc": "pre_sales / 商品目录完整版", "anchor": "### Sony PlayStation 5 Slim"}]}
+# hard：口语化指代 + 需要先定位「哪一款」再取价格
+{"query": "苹果那个屏幕最大的手机，顶配要多少钱", "bucket": "单品属性", "difficulty": "hard", "relevant": [{"doc": "pre_sales / 商品目录完整版", "anchor": "### iPhone 15 Pro Max"}]}
+{"query": "想买个降噪的头戴耳机，索尼那款旗舰多少钱", "bucket": "单品属性", "difficulty": "hard", "relevant": [{"doc": "pre_sales / 商品目录完整版", "anchor": "### Sony WH-1000XM5"}]}
+{"query": "平板里尺寸最大的是哪一台，多少钱", "bucket": "单品属性", "difficulty": "hard", "relevant": [{"doc": "pre_sales / 商品目录完整版", "anchor": "### iPad Pro M4 (13\")"}]}
+{"query": "笔记本买 16G 内存到底够不够用", "bucket": "单品属性", "difficulty": "hard", "relevant": [{"doc": "pre_sales / 商品咨询细则", "anchor": "Q: 笔记本 16GB 内存够用吗？"}]}
+
+# ── 促销与券 ──────────────────────────────────────────────────────────────
+{"query": "NEW100 优惠券满多少才能用", "bucket": "促销与券", "difficulty": "easy", "relevant": [{"doc": "pre_sales / 促销规则", "anchor": "## 优惠券体系"}]}
+{"query": "618 跨店满减是多少减多少", "bucket": "促销与券", "difficulty": "easy", "relevant": [{"doc": "pre_sales / 促销规则", "anchor": "## 618 年中大促"}]}
+{"query": "平台券和店铺券能一起用吗", "bucket": "促销与券", "difficulty": "easy", "relevant": [{"doc": "pre_sales / 促销规则", "anchor": "## 优惠券使用规则"}]}
+{"query": "PLUS 会员日是每月几号，有什么专属优惠", "bucket": "促销与券", "difficulty": "easy", "relevant": [{"doc": "pre_sales / 促销规则", "anchor": "## PLUS 会员日"}]}
+{"query": "PLUS 会员的 95 折和优惠券哪个先生效", "bucket": "促销与券", "difficulty": "easy", "relevant": [{"doc": "pre_sales / 会员政策", "anchor": "Q: PLUS 会员的 95 折能和优惠券叠加吗？"}]}
+{"query": "黄金会员需要消费多少钱才能升级", "bucket": "促销与券", "difficulty": "easy", "relevant": [{"doc": "pre_sales / 会员政策", "anchor": "Q: 有哪些会员等级？如何升级？"}]}
+{"query": "积分能抵多少钱，最多抵多少比例", "bucket": "促销与券", "difficulty": "easy", "relevant": [{"doc": "pre_sales / 会员政策", "anchor": "Q: 会员积分有什么用？"}]}
+{"query": "一个商品限购几件，按什么算额度", "bucket": "促销与券", "difficulty": "easy", "relevant": [{"doc": "pre_sales / 订单与限购规则", "anchor": "## 限购规则"}]}
+# hard：问的是条款里的"子条目"，标题词不合理想
+{"query": "第一次下单有什么券可以领", "bucket": "促销与券", "difficulty": "hard", "relevant": [{"doc": "pre_sales / 促销规则", "anchor": "## 优惠券体系"}]}
+{"query": "用了券之后订单取消了，券会退回来吗", "bucket": "促销与券", "difficulty": "hard", "relevant": [{"doc": "pre_sales / 促销规则", "anchor": "## 优惠券使用规则"}]}
+{"query": "秒杀一般几点开始", "bucket": "促销与券", "difficulty": "hard", "relevant": [{"doc": "pre_sales / 促销规则", "anchor": "## 618 年中大促"}]}
+{"query": "积分会不会一年不用就清零", "bucket": "促销与券", "difficulty": "hard", "relevant": [{"doc": "pre_sales / 会员政策", "anchor": "Q: 积分会过期吗？"}]}
+
+# ── 政策条款 ──────────────────────────────────────────────────────────────
+{"query": "七日无理由退货有什么条件", "bucket": "政策条款", "difficulty": "easy", "relevant": [{"doc": "after_sales / 退换货政策", "anchor": "## 七日无理由退货"}]}
+{"query": "哪些商品不支持七天无理由退货", "bucket": "政策条款", "difficulty": "easy", "relevant": [{"doc": "after_sales / 退换货政策", "anchor": "## 七日无理由退货"}]}
+{"query": "签收后多久内可以申请换货", "bucket": "政策条款", "difficulty": "easy", "relevant": [{"doc": "after_sales / 退换货政策", "anchor": "## 换货政策"}]}
+{"query": "三包的退货换货修理期限分别是多久", "bucket": "政策条款", "difficulty": "easy", "relevant": [{"doc": "after_sales / 保修与维修政策", "anchor": "## 三包政策"}]}
+{"query": "电池健康度低于多少可以免费更换", "bucket": "政策条款", "difficulty": "easy", "relevant": [{"doc": "after_sales / 保修与维修政策", "anchor": "## 保修范围"}]}
+{"query": "下单时忘记开发票了还能补开吗", "bucket": "政策条款", "difficulty": "easy", "relevant": [{"doc": "during_sales / 发票规则", "anchor": "Q: 下单时忘记开发票了，还能补开吗？"}]}
+{"query": "发票内容可以开成办公用品吗", "bucket": "政策条款", "difficulty": "easy", "relevant": [{"doc": "during_sales / 发票规则", "anchor": "Q: 发票内容能写\"办公用品\"吗？"}]}
+{"query": "电子产品的保价期是几天，从什么时候算", "bucket": "政策条款", "difficulty": "easy", "relevant": [{"doc": "pre_sales / 价格保护与保价", "anchor": "## 保价期限"}]}
+{"query": "买到假货能赔多少，需要什么鉴定报告", "bucket": "政策条款", "difficulty": "easy", "relevant": [{"doc": "pre_sales / 正品保障与验真", "anchor": "## 假一赔十规则"}]}
+# hard：否定式提问（问的是"不适用/例外"，而文档主体在讲"适用"）
+{"query": "有哪些情况是不给保价的", "bucket": "政策条款", "difficulty": "hard", "relevant": [{"doc": "pre_sales / 价格保护与保价", "anchor": "## 不予保价的情形"}]}
+{"query": "什么情况下连换货都不给办", "bucket": "政策条款", "difficulty": "hard", "relevant": [{"doc": "after_sales / 退换货政策", "anchor": "## 换货政策"}]}
+{"query": "买了延保后来不想要了，能退吗", "bucket": "政策条款", "difficulty": "hard", "relevant": [{"doc": "after_sales / 保修与维修政策", "anchor": "## 延保服务"}]}
+{"query": "发票弄丢了怎么补", "bucket": "政策条款", "difficulty": "hard", "relevant": [{"doc": "during_sales / 发票规则", "anchor": "Q: 发票丢失了怎么办？"}]}
+{"query": "申请平台介入有没有时间限制", "bucket": "政策条款", "difficulty": "hard", "relevant": [{"doc": "after_sales / 投诉与纠纷处理", "anchor": "## 什么时候可以申请平台介入"}]}
+
+# ── 售后流程 ──────────────────────────────────────────────────────────────
+{"query": "退货退款整个流程大概要多久", "bucket": "售后流程", "difficulty": "easy", "relevant": [{"doc": "after_sales / 售后服务", "anchor": "Q: 申请退货后多久可以收到退款？"}]}
+{"query": "退款多久能到账，不同支付方式有区别吗", "bucket": "售后流程", "difficulty": "easy", "relevant": [{"doc": "after_sales / 售后服务", "anchor": "Q: 退款多久能到账？"}]}
+{"query": "快递显示签收但我没收到货怎么办", "bucket": "售后流程", "difficulty": "easy", "relevant": [{"doc": "after_sales / 售后服务", "anchor": "Q: 快递显示签收但我没收到货怎么办？"}]}
+{"query": "快递员联系不上收件人会怎么处理", "bucket": "售后流程", "difficulty": "easy", "relevant": [{"doc": "after_sales / 配送自提与安装", "anchor": "## 配送异常处理"}]}
+{"query": "什么情况下可以申请平台介入", "bucket": "售后流程", "difficulty": "easy", "relevant": [{"doc": "after_sales / 投诉与纠纷处理", "anchor": "## 什么时候可以申请平台介入"}]}
+{"query": "商家延迟发货能赔付多少", "bucket": "售后流程", "difficulty": "easy", "relevant": [{"doc": "after_sales / 投诉与纠纷处理", "anchor": "## 赔付标准"}]}
+{"query": "以旧换新的旧机要什么时候寄出", "bucket": "售后流程", "difficulty": "easy", "relevant": [{"doc": "after_sales / 以旧换新与回收", "anchor": "## 以旧换新流程"}]}
+{"query": "以旧换新寄出前要做哪些数据清除步骤", "bucket": "售后流程", "difficulty": "easy", "relevant": [{"doc": "after_sales / 以旧换新与回收", "anchor": "## 数据安全"}]}
+{"query": "安装服务哪些项目是免费的，哪些要收费", "bucket": "售后流程", "difficulty": "easy", "relevant": [{"doc": "after_sales / 配送自提与安装", "anchor": "## 安装服务"}]}
+{"query": "维修一般要等多久，超时有没有补偿", "bucket": "售后流程", "difficulty": "easy", "relevant": [{"doc": "after_sales / 保修与维修政策", "anchor": "## 维修流程"}]}
+# hard：口语化 + 问的是子条目
+{"query": "大件的要不要另外收上楼的钱", "bucket": "售后流程", "difficulty": "hard", "relevant": [{"doc": "after_sales / 配送自提与安装", "anchor": "## 大件商品配送"}]}
+{"query": "旧手机估价和最后给的钱差太多怎么办", "bucket": "售后流程", "difficulty": "hard", "relevant": [{"doc": "after_sales / 以旧换新与回收", "anchor": "## 估价规则"}]}
+{"query": "我旧手机里的照片你们怎么处理", "bucket": "售后流程", "difficulty": "hard", "relevant": [{"doc": "after_sales / 以旧换新与回收", "anchor": "## 数据安全"}]}
+{"query": "退款被商家拒了怎么办", "bucket": "售后流程", "difficulty": "hard", "relevant": [{"doc": "after_sales / 售后服务", "anchor": "Q: 退款被拒绝了怎么办？"}]}
+
+# ── 跨实体规则 ────────────────────────────────────────────────────────────
+{"query": "iPhone 15 Pro Max 能用 PHONE618 券吗", "bucket": "跨实体规则", "difficulty": "easy", "relevant": [{"doc": "pre_sales / 商品目录完整版", "anchor": "### iPhone 15 Pro Max"}, {"doc": "pre_sales / 促销规则", "anchor": "## 优惠券体系"}]}
+{"query": "AirPods Pro 2 能用 AUDIO618 券吗", "bucket": "跨实体规则", "difficulty": "easy", "relevant": [{"doc": "pre_sales / 商品目录完整版", "anchor": "### AirPods Pro 2 (USB-C)"}, {"doc": "pre_sales / 促销规则", "anchor": "## 优惠券体系"}]}
+{"query": "PLUS 会员买 iPhone 15 Pro Max 最多能叠加几张券", "bucket": "跨实体规则", "difficulty": "easy", "relevant": [{"doc": "pre_sales / 会员政策", "anchor": "Q: 有哪些会员等级？如何升级？"}, {"doc": "pre_sales / 促销规则", "anchor": "## 优惠券使用规则"}]}
+{"query": "PLUS 会员日的 95 折和平台券能一起用吗，最终价格怎么算", "bucket": "跨实体规则", "difficulty": "easy", "relevant": [{"doc": "pre_sales / 促销规则", "anchor": "## PLUS 会员日"}, {"doc": "pre_sales / 会员政策", "anchor": "Q: PLUS 会员的 95 折能和优惠券叠加吗？"}]}
+{"query": "跨店满减和优惠券能同时用吗，最多叠加几层", "bucket": "跨实体规则", "difficulty": "easy", "relevant": [{"doc": "pre_sales / 促销规则", "anchor": "## 618 年中大促"}, {"doc": "pre_sales / 促销规则", "anchor": "## 优惠券使用规则"}]}
+{"query": "国行和港版的 iPhone 在保修上有区别吗", "bucket": "跨实体规则", "difficulty": "easy", "relevant": [{"doc": "pre_sales / 商品咨询细则", "anchor": "Q: 商品标注「国行」和「港版」有什么区别？"}, {"doc": "after_sales / 保修与维修政策", "anchor": "## 常见问题"}]}
+{"query": "手机激活后不能无理由退货，如果是质量问题三包怎么算", "bucket": "跨实体规则", "difficulty": "easy", "relevant": [{"doc": "after_sales / 退换货政策", "anchor": "## 七日无理由退货"}, {"doc": "after_sales / 保修与维修政策", "anchor": "## 三包政策"}]}
+{"query": "iPhone 序列号在官网查不到记录，能申请假一赔十吗", "bucket": "跨实体规则", "difficulty": "easy", "relevant": [{"doc": "pre_sales / 正品保障与验真", "anchor": "## 正品承诺"}, {"doc": "pre_sales / 正品保障与验真", "anchor": "## 假一赔十规则"}]}
+# hard：真三跳 —— 必须同时拿到「会员等级权益」「会员日规则」「商品价格」才能算出答案
+{"query": "我是 PLUS 会员，6 月 8 号买 iPhone 15 Pro Max，用什么券最划算，最后要付多少", "bucket": "跨实体规则", "difficulty": "hard", "relevant": [{"doc": "pre_sales / 促销规则", "anchor": "## PLUS 会员日"}, {"doc": "pre_sales / 会员政策", "anchor": "Q: PLUS 会员的 95 折能和优惠券叠加吗？"}, {"doc": "pre_sales / 商品目录完整版", "anchor": "### iPhone 15 Pro Max"}]}
+{"query": "分期买的手机退掉了，分期手续费退不退", "bucket": "跨实体规则", "difficulty": "hard", "relevant": [{"doc": "during_sales / 支付指南", "anchor": "## 支持的支付方式"}, {"doc": "after_sales / 退换货政策", "anchor": "## 退款政策"}]}
+{"query": "港版手机能保修吗，能申请假一赔十吗", "bucket": "跨实体规则", "difficulty": "hard", "relevant": [{"doc": "pre_sales / 商品咨询细则", "anchor": "Q: 商品标注「国行」和「港版」有什么区别？"}, {"doc": "after_sales / 保修与维修政策", "anchor": "## 常见问题"}, {"doc": "pre_sales / 正品保障与验真", "anchor": "## 假一赔十规则"}]}
+{"query": "手机屏幕有坏点，我激活了还能退吗，能换新吗", "bucket": "跨实体规则", "difficulty": "hard", "relevant": [{"doc": "after_sales / 退换货政策", "anchor": "## 七日无理由退货"}, {"doc": "after_sales / 退换货政策", "anchor": "## 质量问题处理"}, {"doc": "after_sales / 保修与维修政策", "anchor": "## 三包政策"}]}
+# 扩充多跳集（2026-11-17）：把跨实体桶从 12 条扩到 30 条
+# 目的：allrecall@5 的分母太小（12 条 → 1 条 = 8.3%），融合 vs 纯向量的差距只有 2 条题，不足以下结论
+# 每条都要求「只读一个 chunk 答不全」：跨文档，或同文档但答案分属两节
+# --- easy：两处信息，位置明确 ---
+{"query": "PHONE618 券能用在 iPad Pro 上吗", "bucket": "跨实体规则", "difficulty": "easy", "relevant": [{"doc": "pre_sales / 促销规则", "anchor": "### 品类专属券"}, {"doc": "pre_sales / 商品目录完整版", "anchor": "## 平板电脑"}]}
+{"query": "618 的跨店满减和 PHONE618 券能同时用吗", "bucket": "跨实体规则", "difficulty": "easy", "relevant": [{"doc": "pre_sales / 促销规则", "anchor": "### 跨店满减"}, {"doc": "pre_sales / 促销规则", "anchor": "### 叠加规则"}]}
+{"query": "黄金会员和 PLUS 会员各有几张免运费券", "bucket": "跨实体规则", "difficulty": "easy", "relevant": [{"doc": "after_sales / 物流配送", "anchor": "### 免运费政策"}, {"doc": "pre_sales / 会员政策", "anchor": "Q: 有哪些会员等级？如何升级？"}]}
+{"query": "大件冰箱送上楼要另外收费吗，安装要钱吗", "bucket": "跨实体规则", "difficulty": "easy", "relevant": [{"doc": "after_sales / 配送自提与安装", "anchor": "### 上楼服务"}, {"doc": "after_sales / 配送自提与安装", "anchor": "### 收费安装项目"}]}
+{"query": "预售商品付了定金后来不想要了，定金能退吗，会不会被自动取消订单", "bucket": "跨实体规则", "difficulty": "easy", "relevant": [{"doc": "pre_sales / 订单与限购规则", "anchor": "### 定金规则"}, {"doc": "pre_sales / 订单与限购规则", "anchor": "### 系统自动取消"}]}
+{"query": "重复扣款了多久能退回，会影响我的分期订单吗", "bucket": "跨实体规则", "difficulty": "easy", "relevant": [{"doc": "during_sales / 支付指南", "anchor": "### 重复扣款处理"}, {"doc": "during_sales / 支付指南", "anchor": "### 分期支付"}]}
+{"query": "退款以后增值税专用发票怎么处理", "bucket": "跨实体规则", "difficulty": "easy", "relevant": [{"doc": "during_sales / 发票规则", "anchor": "Q: 申请退款后发票怎么处理？"}, {"doc": "during_sales / 发票规则", "anchor": "Q: 企业用户如何开具增值税专用发票？"}]}
+# --- hard：三处信息，或需要按规则推理/做算术 ---
+{"query": "AUDIO618 和新人专享券能一起用吗，买 AirPods Pro 2 一共能省多少", "bucket": "跨实体规则", "difficulty": "hard", "relevant": [{"doc": "pre_sales / 促销规则", "anchor": "### 叠加规则"}, {"doc": "pre_sales / 促销规则", "anchor": "### 新人专享券"}, {"doc": "pre_sales / 商品目录完整版", "anchor": "### AirPods Pro 2 (USB-C)"}]}
+{"query": "我是普通会员，能用 PLUS95 券买 MacBook Pro 16 吗", "bucket": "跨实体规则", "difficulty": "hard", "relevant": [{"doc": "pre_sales / 会员政策", "anchor": "Q: 有哪些会员等级？如何升级？"}, {"doc": "pre_sales / 促销规则", "anchor": "### 会员专属券"}, {"doc": "pre_sales / 商品目录完整版", "anchor": "### MacBook Pro 16\" (M4 Pro)"}]}
+{"query": "已经激活的 iPhone 15 Plus 用了三天发现屏幕有坏点，还能无理由退吗", "bucket": "跨实体规则", "difficulty": "hard", "relevant": [{"doc": "after_sales / 退换货政策", "anchor": "### 不适用七日无理由退货的商品"}, {"doc": "after_sales / 保修与维修政策", "anchor": "### 三包期限"}]}
+{"query": "港版 iPhone 15 能保修吗，如果验出是假货能赔多少", "bucket": "跨实体规则", "difficulty": "hard", "relevant": [{"doc": "after_sales / 保修与维修政策", "anchor": "### 港版/海外版能保修吗"}, {"doc": "pre_sales / 正品保障与验真", "anchor": "### 赔付标准"}, {"doc": "pre_sales / 商品咨询细则", "anchor": "Q: 商品标注「国行」和「港版」有什么区别？"}]}
+{"query": "618 买的 Sony WH-1000XM5 现在降价了，但我用了优惠券，还能价保吗", "bucket": "跨实体规则", "difficulty": "hard", "relevant": [{"doc": "pre_sales / 价格保护与保价", "anchor": "### 保价与优惠券的冲突处理"}, {"doc": "pre_sales / 价格保护与保价", "anchor": "## 保价期限"}, {"doc": "pre_sales / 商品目录完整版", "anchor": "### Sony WH-1000XM5"}]}
+{"query": "分期买的 MacBook Air 15 降价了，差价怎么退", "bucket": "跨实体规则", "difficulty": "hard", "relevant": [{"doc": "pre_sales / 价格保护与保价", "anchor": "### 分期付款的商品怎么退差价"}, {"doc": "pre_sales / 价格保护与保价", "anchor": "## 差价计算方式"}, {"doc": "pre_sales / 商品目录完整版", "anchor": "### MacBook Air 15\" (M3)"}]}
+{"query": "用积分抵扣买的商品还能价保吗，抵扣的部分怎么算", "bucket": "跨实体规则", "difficulty": "hard", "relevant": [{"doc": "pre_sales / 价格保护与保价", "anchor": "### 用积分抵扣的部分怎么算"}, {"doc": "pre_sales / 会员政策", "anchor": "Q: 会员积分有什么用？"}]}
+{"query": "商家虚假发货我能拿多少赔偿，需要提交什么证据", "bucket": "跨实体规则", "difficulty": "hard", "relevant": [{"doc": "after_sales / 投诉与纠纷处理", "anchor": "### 服务类赔付"}, {"doc": "after_sales / 投诉与纠纷处理", "anchor": "### 有效凭证类型"}]}
+{"query": "以旧换新抵扣后买的新机又退货了，旧机怎么办", "bucket": "跨实体规则", "difficulty": "hard", "relevant": [{"doc": "after_sales / 以旧换新与回收", "anchor": "### 旧机抵扣后新机退货，旧机怎么办"}, {"doc": "after_sales / 以旧换新与回收", "anchor": "### 抵扣方式"}, {"doc": "after_sales / 退换货政策", "anchor": "## 退款政策"}]}
+{"query": "订单被拆单了，优惠怎么算，还能部分退款吗", "bucket": "跨实体规则", "difficulty": "hard", "relevant": [{"doc": "during_sales / 订单状态与修改", "anchor": "### 订单被拆单了，优惠怎么算"}, {"doc": "during_sales / 订单状态与修改", "anchor": "### 拆单后退款怎么算"}]}
+{"query": "限购是按账号还是按身份证算，一个账号能买几台 iPhone 15 Pro Max", "bucket": "跨实体规则", "difficulty": "hard", "relevant": [{"doc": "pre_sales / 订单与限购规则", "anchor": "### 限购计算口径"}, {"doc": "pre_sales / 商品目录完整版", "anchor": "### iPhone 15 Pro Max"}]}

@@ -1,4 +1,4 @@
-"""WebSocket endpoint for Widget long connection with streaming output."""
+"""Widget 长连接 WebSocket 端点，流式输出。"""
 
 import asyncio
 import json
@@ -16,7 +16,7 @@ router = APIRouter(tags=["websocket"])
 async def websocket_chat(ws: WebSocket) -> None:
     await ws.accept()
 
-    conversation_id = 1  # In production, obtain from auth / initial handshake
+    conversation_id = 1  # 生产环境从鉴权/握手拿
     failure_count = 0
 
     try:
@@ -33,7 +33,7 @@ async def websocket_chat(ws: WebSocket) -> None:
             if not user_message.strip():
                 continue
 
-            # Mask sensitive info + safety check
+            # 脱敏 + 安全检查
             clean_msg = mask_sensitive(user_message)
             safety = content_safety.check(clean_msg)
             if not safety.passed:
@@ -44,11 +44,11 @@ async def websocket_chat(ws: WebSocket) -> None:
                 })
                 continue
 
-            # Intent
+            # 意图识别
             intent = classify_intent(clean_msg)
             agent = route_to_agent(intent)
 
-            # Stream response
+            # 流式返回
             t0 = time.monotonic()
             await ws.send_json({
                 "type": "intent",
@@ -80,15 +80,15 @@ async def websocket_chat(ws: WebSocket) -> None:
                 })
                 continue
 
-            failure_count = 0  # reset on success
+            failure_count = 0  # 成功则清零
 
-            # Simulate streaming by sending character by character or chunked
+            # 分块模拟流式
             full_reply = state["final_response"]
             chunk_size = 10
             for i in range(0, len(full_reply), chunk_size):
                 chunk = full_reply[i : i + chunk_size]
                 await ws.send_json({"type": "chunk", "content": chunk})
-                await asyncio.sleep(0.02)  # simulate streaming delay
+                await asyncio.sleep(0.02)  # 模拟流式延迟
 
             await ws.send_json({
                 "type": "reply",
@@ -98,4 +98,4 @@ async def websocket_chat(ws: WebSocket) -> None:
             })
 
     except WebSocketDisconnect:
-        pass  # client disconnected
+        pass  # 客户端断开

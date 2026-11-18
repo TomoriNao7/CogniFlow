@@ -1,4 +1,4 @@
-"""Retry with exponential backoff and circuit breaker for tool calls."""
+"""工具调用的重试（指数退避）与熔断。"""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from app.config import settings
 
 
 def is_retryable(error: Exception) -> bool:
-    """Network/timeout errors are retryable; business errors are not."""
+    """网络 / 超时错误可重试，业务错误不可。"""
     msg = str(error).lower()
     retryable = ["timeout", "connection", "network", "unreachable", "refused", "reset"]
     return any(kw in msg for kw in retryable)
@@ -24,7 +24,7 @@ async def retry_with_backoff(
     base_delay: float = 1.0,
     **kwargs: Any,
 ) -> Any:
-    """Call fn with retry on retryable errors. Delay: 1s → 2s → 4s …"""
+    """对可重试错误按指数退避重试：1s → 2s → 4s …"""
     retries = max_retries if max_retries is not None else settings.tool_retry_count
     last_error: Exception | None = None
 
@@ -44,11 +44,11 @@ async def retry_with_backoff(
 
 @dataclass
 class CircuitBreaker:
-    """Tracks consecutive failures; opens circuit when threshold exceeded."""
+    """连续失败计数，超阈值则熔断。"""
 
     failure_count: int = 0
     failure_threshold: int = 5
-    recovery_timeout: float = 30.0  # seconds
+    recovery_timeout: float = 30.0  # 秒
     last_failure_time: float = 0.0
     state: str = "closed"  # closed | open | half_open
 
@@ -73,12 +73,12 @@ class CircuitBreaker:
         return False
 
 
-# Per-tool circuit breakers (tool_name → CircuitBreaker)
+# 按工具维护熔断器（tool_name → CircuitBreaker）
 _circuits: dict[str, CircuitBreaker] = {}
 
 
 def circuit_check(tool_name: str) -> CircuitBreaker:
-    """Get or create a circuit breaker for a tool."""
+    """按工具取熔断器，没有就新建。"""
     if tool_name not in _circuits:
         _circuits[tool_name] = CircuitBreaker()
     return _circuits[tool_name]

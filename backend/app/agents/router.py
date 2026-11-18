@@ -1,8 +1,8 @@
-"""Intent classification and routing to domain agents.
+"""意图分类与 Agent 路由。
 
-Two-tier strategy:
-  1. LLM classifier (Qwen 1.5B) — primary, high accuracy
-  2. Keyword match — fallback on LLM error or timeout
+两级策略：
+  1. LLM 分类（Qwen 1.5B）——主路径，准确率高
+  2. 关键词匹配——LLM 报错或超时后兜底
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 from app.config import settings
 
-# ── Intent result ────────────────────────────────────────────────────────────
+# ── 意图结果 ────────────────────────────────────────────────────────────
 
 
 @dataclass
@@ -24,7 +24,7 @@ class IntentResult:
     classifier: str = "keyword"  # "llm" | "keyword"
 
 
-# ── LLM classification prompt ────────────────────────────────────────────────
+# ── LLM 分类 prompt ────────────────────────────────────────────────
 
 _INTENT_SYSTEM_PROMPT = """你是电商客服意图分类器。根据用户消息，判断应该由哪个 Agent 处理。
 
@@ -67,14 +67,14 @@ _FEW_SHOT_EXAMPLES = [
 
 
 def _classify_llm(user_query: str) -> IntentResult | None:
-    """Use Qwen 1.5B to classify intent. Returns None on failure (→ fallback to keyword)."""
+    """LLM 意图分类，失败返回 None（转关键词兜底）。"""
     try:
         from openai import OpenAI
 
         client = OpenAI(
             api_key=settings.qwen_api_key,
             base_url=settings.qwen_base_url,
-            timeout=5.0,  # fast timeout for classification
+            timeout=5.0,  # 分类要快，超时设短
         )
 
         messages: list[dict] = [
@@ -92,6 +92,8 @@ def _classify_llm(user_query: str) -> IntentResult | None:
             temperature=0.0,
             max_tokens=128,
             response_format={"type": "json_object"},
+            # 意图分类 5s 超时，必须关深度思考，否则 qwen4-max 思考时间必超时
+            extra_body=settings.thinking_extra(False),
         )
 
         raw = resp.choices[0].message.content or ""
@@ -111,7 +113,7 @@ def _classify_llm(user_query: str) -> IntentResult | None:
         return None
 
 
-# ── Keyword fallback (kept from original implementation) ──────────────────────
+# ── 关键词兜底（沿用原实现） ──────────────────────
 
 _INTENT_RULES: list[tuple[list[str], str, str]] = [
     (
@@ -137,7 +139,7 @@ _INTENT_RULES: list[tuple[list[str], str, str]] = [
 
 
 def _classify_keyword(user_query: str) -> IntentResult:
-    """Simple keyword-based intent classification (fallback)."""
+    """关键词意图分类（兜底）。"""
     best_score = 0.0
     best_intent = "query_product"
     best_agent = "pre_sales"
@@ -158,11 +160,11 @@ def _classify_keyword(user_query: str) -> IntentResult:
     )
 
 
-# ── Public API ────────────────────────────────────────────────────────────────
+# ── 对外 API ────────────────────────────────────────────────────────────────
 
 
 def classify_intent(user_query: str) -> IntentResult:
-    """Classify user intent with LLM primary + keyword fallback."""
+    """意图分类：LLM 为主，关键词兜底。"""
     result = _classify_llm(user_query)
     if result is not None:
         return result
@@ -170,7 +172,7 @@ def classify_intent(user_query: str) -> IntentResult:
 
 
 def route_to_agent(intent: IntentResult):
-    """Return the appropriate agent instance based on intent."""
+    """按意图返回对应 Agent 实例。"""
     if intent.target_agent == "during_sales":
         from app.agents.during_sales.agent import during_sales_agent
 
@@ -179,7 +181,7 @@ def route_to_agent(intent: IntentResult):
         from app.agents.after_sales.agent import after_sales_agent
 
         return after_sales_agent
-    # Default: pre_sales
+    # 默认走售前
     from app.agents.pre_sales.agent import pre_sales_agent
 
     return pre_sales_agent

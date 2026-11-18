@@ -1,4 +1,4 @@
-"""Admin panel REST API — conversations, feedback, knowledge, agents, tools."""
+"""管理后台 REST API —— 会话、反馈、知识库、agent、工具。"""
 
 from __future__ import annotations
 
@@ -24,13 +24,13 @@ from app.models.engine import async_session_factory
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
-# Upload destination — project root / data/
+# 上传目录：项目根目录 / data/
 UPLOAD_DIR = str(
     __import__("pathlib").Path(__file__).parent.parent.parent.parent / "data"
 )
 
 
-# ── Schemas ───────────────────────────────────────────────────────────────────
+# ── 数据模型 ───────────────────────────────────────────────────────────────────
 
 class AgentUpdate(BaseModel):
     model: str | None = None
@@ -40,7 +40,7 @@ class AgentUpdate(BaseModel):
     bm25_weight: float | None = None
 
 
-# ── Dashboard stats ───────────────────────────────────────────────────────────
+# ── 看板统计 ───────────────────────────────────────────────────────────
 
 @router.get("/dashboard")
 async def dashboard_stats():
@@ -68,7 +68,7 @@ async def dashboard_stats():
         total_fb = helpful + unhelpful
         satisfaction = round(helpful / total_fb * 100, 1) if total_fb > 0 else 100.0
 
-        # Agent distribution
+        # agent 分布
         agent_dist = (await session.execute(
             select(Conversation.agent_id, func.count(Conversation.id))
             .where(Conversation.agent_id.isnot(None))
@@ -92,7 +92,7 @@ async def dashboard_stats():
         }
 
 
-# ── Conversations ─────────────────────────────────────────────────────────────
+# ── 会话 ─────────────────────────────────────────────────────────────
 
 @router.get("/conversations")
 async def list_conversations(page: int = 1, page_size: int = 20, status: str = ""):
@@ -142,7 +142,7 @@ async def conversation_messages(conv_id: int):
         }
 
 
-# ── Feedback ──────────────────────────────────────────────────────────────────
+# ── 反馈 ──────────────────────────────────────────────────────────────────
 
 @router.get("/feedback")
 async def list_feedback(page: int = 1, page_size: int = 20, rating: str = ""):
@@ -195,7 +195,7 @@ async def feedback_stats():
         }
 
 
-# ── Knowledge ─────────────────────────────────────────────────────────────────
+# ── 知识库 ─────────────────────────────────────────────────────────────────
 
 @router.get("/knowledge")
 async def list_knowledge(page: int = 1, page_size: int = 20):
@@ -247,7 +247,7 @@ async def knowledge_stats():
         }
 
 
-# ── Agents ────────────────────────────────────────────────────────────────────
+# ── Agent ────────────────────────────────────────────────────────────────────
 
 @router.get("/agents")
 async def list_agents():
@@ -287,7 +287,7 @@ async def update_agent(agent_id: int, body: AgentUpdate):
         agent.updated_at = datetime.now(timezone.utc)
         await session.commit()
 
-        # Update retrieval params
+        # 更新检索参数
         for key, val in [("top_k", body.top_k), ("similarity_threshold", body.similarity_threshold), ("bm25_weight", body.bm25_weight)]:
             if val is not None:
                 existing = (await session.execute(
@@ -305,7 +305,7 @@ async def update_agent(agent_id: int, body: AgentUpdate):
         return {"status": "ok", "agent_id": agent_id}
 
 
-# ── Tools ─────────────────────────────────────────────────────────────────────
+# ── 工具 ─────────────────────────────────────────────────────────────────────
 
 @router.get("/tools")
 async def list_admin_tools():
@@ -331,11 +331,11 @@ async def list_admin_tools():
         }
 
 
-# ── Knowledge upload ──────────────────────────────────────────────────────────
+# ── 知识库上传 ──────────────────────────────────────────────────────────
 
 @router.post("/knowledge/upload")
 async def upload_knowledge(file: UploadFile = File(...)):
-    """Upload a document, save it, and run the ingestion pipeline."""
+    """上传文档、落盘并跑入库流程。"""
     if not file.filename:
         raise HTTPException(400, "No file selected")
 
@@ -343,7 +343,7 @@ async def upload_knowledge(file: UploadFile = File(...)):
     if ext not in (".md", ".faq", ".txt", ".pdf", ".docx", ".xlsx"):
         raise HTTPException(400, f"Unsupported format: {ext}. Supports .md, .faq, .txt, .pdf, .docx, .xlsx")
 
-    # Detect split method
+    # 判断切分方式
     SPLIT_MAP = {
         "md": "structure", "faq": "qa_boundary", "txt": "fixed_size",
         "pdf": "semantic", "docx": "semantic", "xlsx": "row_table",
@@ -351,17 +351,18 @@ async def upload_knowledge(file: UploadFile = File(...)):
     split_method = SPLIT_MAP.get(ext.lstrip("."), "fixed_size")
     file_type = ext.lstrip(".")
 
-    # Save file to data/ directory
+    # 文件落到 data/ 目录
     save_dir = os.path.join(UPLOAD_DIR, file_type)
     os.makedirs(save_dir, exist_ok=True)
     save_path = os.path.join(save_dir, file.filename)
     with open(save_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
 
-    # Run ingestion (includes DB persistence via _persist_to_db)
+    # 走异步版入库：当前 endpoint 已是 async 上下文，
+    # 若调同步版 ingest_file 会触发 asyncio.run() cannot be called from a running event loop
     try:
-        from app.rag.ingestion import ingest_file
-        stats = ingest_file(save_path)
+        from app.rag.ingestion import ingest_file_async
+        stats = await ingest_file_async(save_path)
     except Exception as e:
         raise HTTPException(500, f"Ingestion failed: {e}")
 

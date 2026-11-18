@@ -1,4 +1,4 @@
-"""After-sales agent tools: 查物流、查订单、发起退款、查退款进度"""
+"""售后 agent 工具：查物流、查订单、发起退款、查退款进度"""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from datetime import datetime
 from app.tools.base import ToolDefinition, ToolParameterDef, ToolResult
 from app.tools.registry import tool_registry
 
-# ── Mock data ─────────────────────────────────────────────────────────────────
+# ── Mock 假数据 ─────────────────────────────────────────────────────────────────
 
 _MOCK_LOGISTICS: dict[str, dict] = {
     "ORD20260607002": {
@@ -68,10 +68,10 @@ _REFUND_POLICY = {
 }
 
 
-# ── Tool handlers ─────────────────────────────────────────────────────────────
+# ── 工具处理函数 ─────────────────────────────────────────────────────────────
 
 def _check_logistics(order_id: str = "") -> ToolResult:
-    """Check logistics status for an order."""
+    """查询订单物流状态。"""
     t0 = time.monotonic()
     info = _MOCK_LOGISTICS.get(order_id)
     if not info:
@@ -84,9 +84,9 @@ def _check_logistics(order_id: str = "") -> ToolResult:
 
 
 def _query_order(order_id: str = "") -> ToolResult:
-    """Query order details."""
+    """查询订单详情。"""
     t0 = time.monotonic()
-    # Share mock orders pool — in production this queries the database
+    # 共用假订单池，生产环境应查数据库
     all_orders = {
         "ORD20260607002": {
             "order_id": "ORD20260607002",
@@ -124,7 +124,7 @@ def _query_order(order_id: str = "") -> ToolResult:
 
 
 def _request_refund(order_id: str = "", reason: str = "") -> ToolResult:
-    """Request a refund for a paid order."""
+    """为已支付订单发起退款。"""
     t0 = time.monotonic()
     if order_id not in ("ORD20260607002", "ORD20260605004"):
         return ToolResult(success=False, error=f"订单 {order_id} 不存在或不属于您")
@@ -153,11 +153,11 @@ def _request_refund(order_id: str = "", reason: str = "") -> ToolResult:
 
 
 def _check_refund_status(refund_id: str = "") -> ToolResult:
-    """Check refund progress."""
+    """查询退款进度。"""
     t0 = time.monotonic()
     refund = next((r for r in _MOCK_REFUNDS if r["refund_id"] == refund_id), None)
     if not refund:
-        # Return a generic processing status for any refund_id
+        # 任意 refund_id 都返回通用处理中状态
         return ToolResult(
             success=True,
             data={
@@ -175,7 +175,7 @@ def _check_refund_status(refund_id: str = "") -> ToolResult:
     )
 
 
-# ── Register tools ────────────────────────────────────────────────────────────
+# ── 注册工具 ────────────────────────────────────────────────────────────
 
 def register_after_sales_tools(agent_id: int = 3) -> None:
     from app.tools.web_search import register_web_search
