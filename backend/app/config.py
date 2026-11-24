@@ -57,9 +57,17 @@ class Settings:
     after_sales_model: str = os.getenv("AFTER_SALES_MODEL", "") or llm_model
     embedding_model: str = os.getenv("EMBEDDING_MODEL", "text-embedding-v3")
 
-    # Reranker
-    reranker_model: str = "bge-reranker-v2-m3"
+    # 精排模型（须带组织前缀，否则 FlagReranker 无法解析为仓库 ID）
+    reranker_model: str = os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-v2-m3")
     reranker_device: str = os.getenv("RERANKER_DEVICE", "cpu")
+    # 精排开关，默认关。83 条全量实测：交叉编码器用 5 条 hit@1 换 4 条
+    # allrecall@5，且 CPU 上 24s/query，不适合放进默认链路。
+    reranker_enabled: bool = os.getenv("RERANKER_ENABLED", "false").lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
 
     # Agent 默认值
     max_conversation_turns: int = 10
@@ -71,8 +79,10 @@ class Settings:
     # 检索默认值
     retrieval_top_k: int = 5
     similarity_threshold: float = 0.75
-    bm25_weight: float = 0.3
-    vector_weight: float = 0.7
+    # 权重互补（和恒为 1）。0.1/0.9 来自 83 条评估集的扫描：0.3 时 hit@1
+    # 比 0.1 少命中 6 条，是噪声地板（1 条 ≈ 1.2pt）的 6 倍。
+    bm25_weight: float = 0.1
+    vector_weight: float = 0.9
 
     # 深度思考开关
     # qwen4-max 默认 enable_thinking=true、reasoning_effort=high，

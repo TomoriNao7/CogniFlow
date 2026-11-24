@@ -285,6 +285,7 @@ class MessageTrace(Base):
     retrieval_top_k: Mapped[Optional[int]] = mapped_column(Integer)
     retrieval_duration_ms: Mapped[Optional[int]] = mapped_column(Integer)
     rerank_model: Mapped[Optional[str]] = mapped_column(String(64))
+    rerank_mode: Mapped[Optional[str]] = mapped_column(String(16))
     rerank_duration_ms: Mapped[Optional[int]] = mapped_column(Integer)
     generation_model: Mapped[Optional[str]] = mapped_column(String(32))
     generation_prompt_tokens: Mapped[Optional[int]] = mapped_column(Integer)

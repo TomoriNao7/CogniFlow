@@ -1,3 +1,4 @@
+import asyncio
 import os
 from contextlib import asynccontextmanager
 
@@ -32,6 +33,25 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[startup] RAG index load warning: {e}")
 
+    # 精排预热：开关打开时提前加载 cross-encoder（约 50s、600MB），
+    # 否则第一个走精排的请求要干等半分钟。加载丢线程，不堵事件循环。
+    try:
+        from app.config import settings as app_settings
+
+        if app_settings.reranker_enabled:
+            from app.rag.reranker import Reranker
+
+            warm = Reranker()
+            ok = await asyncio.to_thread(lambda: warm.is_available)
+            if ok:
+                print("[startup] Reranker warmed up")
+            else:
+                print(f"[startup] Reranker warm-up failed, will fall back: {warm.load_error}")
+        else:
+            print("[startup] Reranker disabled, skip warm-up")
+    except Exception as e:
+        print(f"[startup] Reranker warm-up warning: {e}")
+
     yield
 
 
@@ -60,6 +80,7 @@ app.include_router(ws_router, prefix="/ws")
 async def health():
     from app.rag.vector_store import vector_store
     from app.rag.bm25_store import bm25_store
+    from app.rag.reranker import Reranker
 
     db_ok = False
     try:
@@ -79,4 +100,7 @@ async def health():
         "bm25": bm25_store.is_ready,
         "bm25_count": len(bm25_store),
         "database": db_ok,
+        # 精排是否真的生效：off / cross / fallback。配置写着模型名而实际
+        # 跑降级分支时，只有这里能看出来。
+        "reranker": Reranker().mode,
     }

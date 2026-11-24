@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from dataclasses import dataclass
 
 from app.config import settings
 from app.rag.embedder import embedder
 from app.rag.vector_store import vector_store
 from app.rag.bm25_store import bm25_store
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -34,9 +38,16 @@ class HybridRetriever:
         self.top_k = top_k if top_k is not None else settings.retrieval_top_k
 
     async def retrieve(self, query: str) -> list[RetrievalResult]:
-        """混合检索：BM25 + 向量语义，加权融合。"""
-        bm25_results = await self._bm25_search(query)
-        vector_results = await self._vector_search(query)
+        """两路并发检索后融合。
+
+        并发有意义：BM25 是内存里的 CPU 活，向量侧要等数据库往返，两者
+        互不依赖。但注意 embedder.embed_query 是同步阻塞调用，必须丢进
+        线程池，否则它会占住事件循环，并发退化成串行。
+        """
+        bm25_results, vector_results = await asyncio.gather(
+            self._bm25_search(query),
+            self._vector_search(query),
+        )
         return self._fusion(bm25_results, vector_results)
 
     async def _bm25_search(self, query: str) -> list[RetrievalResult]:
@@ -57,7 +68,8 @@ class HybridRetriever:
 
     async def _vector_search(self, query: str) -> list[RetrievalResult]:
         """通过 pgvector 做向量语义检索。"""
-        qv = embedder.embed_query(query)
+        # embed_query 是同步的 HTTP 调用，丢线程池避免阻塞事件循环
+        qv = await asyncio.to_thread(embedder.embed_query, query)
         hits = await vector_store.search(qv, top_k=self.top_k * 2)
         return [
             RetrievalResult(
@@ -76,29 +88,40 @@ class HybridRetriever:
         bm25: list[RetrievalResult],
         vector: list[RetrievalResult],
     ) -> list[RetrievalResult]:
-        """BM25 与向量结果的加权融合（RRF-like 打分）。"""
-        contents: dict[str, tuple[str, str, int, int]] = {}
-        scores: dict[str, float] = {}
+        """两路结果的加权融合，按数据库主键对齐。
 
-        for r in bm25:
-            scores[r.chunk_id] = self.bm25_weight * r.score
-            contents[r.chunk_id] = (r.content, r.source_document, r.db_chunk_id, r.document_id)
+        必须用 db_chunk_id（整数）而不是 chunk_id（字符串）：BM25 侧形如
+        "pre_sales / 商品目录#chunk0"，向量侧形如 "313"，两者永远对不上，
+        按 chunk_id 合并等于没有合并，只是把两路分数摆在一起比大小。
+        """
+        scores: dict[int, float] = {}
+        meta: dict[int, RetrievalResult] = {}
+        dropped = 0
 
-        for r in vector:
-            current = scores.get(r.chunk_id, 0.0)
-            scores[r.chunk_id] = current + self.vector_weight * r.score
-            if r.chunk_id not in contents:
-                contents[r.chunk_id] = (r.content, r.source_document, r.db_chunk_id, r.document_id)
+        for results, weight in (
+            (bm25, self.bm25_weight),
+            (vector, self.vector_weight),
+        ):
+            for r in results:
+                cid = r.db_chunk_id
+                if cid <= 0:
+                    dropped += 1
+                    continue
+                scores[cid] = scores.get(cid, 0.0) + weight * r.score
+                meta.setdefault(cid, r)
 
-        sorted_ids = sorted(scores, key=lambda k: scores[k], reverse=True)[: self.top_k]
+        if dropped:
+            logger.warning("融合丢弃 %d 条缺少 db_chunk_id 的结果，索引可能未回填主键", dropped)
+
+        ordered = sorted(scores, key=lambda k: scores[k], reverse=True)[: self.top_k]
         return [
             RetrievalResult(
-                chunk_id=cid,
-                content=contents[cid][0],
+                chunk_id=meta[cid].chunk_id,
+                content=meta[cid].content,
                 score=round(scores[cid], 4),
-                source_document=contents[cid][1],
-                db_chunk_id=contents[cid][2],
-                document_id=contents[cid][3],
+                source_document=meta[cid].source_document,
+                db_chunk_id=cid,
+                document_id=meta[cid].document_id,
             )
-            for cid in sorted_ids
+            for cid in ordered
         ]

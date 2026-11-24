@@ -45,6 +45,11 @@ async def init_db() -> None:
             END $$;
             """
         ))
+        # 同上的补列：trace 要能记录本次精排是 off / cross / fallback
+        await conn.execute(text(
+            "ALTER TABLE message_traces "
+            "ADD COLUMN IF NOT EXISTS rerank_mode VARCHAR(16)"
+        ))
 
 
 async def get_session() -> AsyncSession:

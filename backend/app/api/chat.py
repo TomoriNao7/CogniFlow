@@ -101,6 +101,7 @@ async def _save_trace(message_id: int, state: dict, intent_agent: str, intent_co
             retrieval_top_k=trace.get("retrieval_top_k"),
             retrieval_duration_ms=trace.get("retrieval_ms"),
             rerank_model=trace.get("rerank_model") or settings.reranker_model,
+            rerank_mode=trace.get("rerank_mode"),
             rerank_duration_ms=trace.get("rerank_ms"),
         )
         session.add(mt)

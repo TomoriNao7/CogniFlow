@@ -40,6 +40,19 @@
     vector   ：纯 pgvector 余弦
     weighted ：加权融合（0.3*bm25 + 0.7*vector），按 db_chunk_id 对齐（绕开线上 _fusion 的 chunk_id 不一致 bug）
     rrf      ：RRF(k=60) 名次融合，只看名次不看分数
+
+P3-A 三个消融实验（只动本脚本，不碰线上代码）：
+    1. 权重扫描   weighted:0.1 / 0.2 / 0.3 / 0.5 —— 找 bm25_weight 的最优点。
+                  weighted:0.0 在排序上恒等于 vector，故不单列，直接用 vector 列当 w=0 的锚。
+    2. RRF k 扫描 rrf:10 / 60 / 100 —— 确认 RRF 的「hit5 高、hit1 低」不是参数没调好。
+    3. 精排消融   weighted:0.3+rerank —— 宽召回 WIDE_K 条 → 精排 → 截断 RECALL_K 条；
+                  对照 weighted:0.3（不精排），差值即精排收益。
+
+关于精排消融的口径（必须说清楚，否则数字会被误读）：
+    本机 conda 环境**没有装 FlagEmbedding / torch**，`Reranker.rerank()` 会走
+    `_score_rerank` 降级分支（按分排序 + 同源扣 0.03 + 位置衰减 0.01）。
+    所以「+rerank」测的是**降级精排**的实际效果，不是 bge-reranker-v2-m3 交叉编码器的效果。
+    要测真交叉编码器需先 `pip install FlagEmbedding torch`（约 2~3GB）。
 """
 
 from __future__ import annotations
@@ -69,7 +82,11 @@ QUERIES_PATH = EVAL_DIR / "queries.jsonl"
 # 检索召回条数（四路统一，取这个数再算 Hit@5/MRR@10 等）
 RECALL_K = 10
 
-# RRF 常数
+# 精排前先宽召回这么多条，精排后再截断回 RECALL_K
+# 现在的线上是「融合后取 top-5 → 精排」，精排只能救回已经进前 5 的，顺序是倒的
+WIDE_K = 20
+
+# RRF 常数（默认值，实验里可覆盖）
 RRF_K = 60
 
 # 五桶
@@ -77,6 +94,20 @@ BUCKETS = ["单品属性", "促销与券", "政策条款", "售后流程", "跨�
 
 # 难度分层：easy 组已饱和，只有 hard 组能区分策略优劣，必须分开报
 DIFFICULTIES = ["easy", "hard"]
+
+# P3-A 默认跑的实验组：两组基线 + 权重扫描 + RRF k 扫描 + 精排消融
+DEFAULT_STRATEGIES = [
+    "bm25",
+    "vector",
+    "weighted:0.1",
+    "weighted:0.2",
+    "weighted:0.3",  # 当前线上取值
+    "weighted:0.5",
+    "rrf:10",
+    "rrf:60",  # 当前 RRF 常数
+    "rrf:100",
+    "weighted:0.3+rerank",  # 宽召回 → 精排 → 截断
+]
 
 
 # ── 数据加载 ───────────────────────────────────────────────────────────────────
@@ -188,34 +219,135 @@ def bm25_search(query: str, k: int = RECALL_K) -> list[tuple[int, float]]:
     return [(doc.db_chunk_id, score) for doc, score in hits]
 
 
+# 查询向量缓存：同一条 query 会跑过十个策略，每次都重新算 embedding 就是十倍的网络调用
+# （DashScope 单次 200~500ms，不缓存的话一轮要十几分钟）。向量与策略无关，缓存是安全的。
+_QUERY_VEC_CACHE: dict[str, list[float]] = {}
+
+
+def _query_vector(query: str) -> list[float]:
+    """取查询向量，命中缓存直接返回。"""
+    if query not in _QUERY_VEC_CACHE:
+        _QUERY_VEC_CACHE[query] = embedder.embed_query(query)
+    return _QUERY_VEC_CACHE[query]
+
+
 async def vector_search(query: str, k: int = RECALL_K) -> list[tuple[int, float]]:
-    qv = embedder.embed_query(query)
-    hits = await vector_store.search(qv, top_k=k)
+    hits = await vector_store.search(_query_vector(query), top_k=k)
     return [(int(h["entity"]["db_chunk_id"]), h["distance"]) for h in hits]
 
 
-def _weighted_fusion(bm25: list[tuple[int, float]], vec: list[tuple[int, float]]) -> list[tuple[int, float]]:
-    """加权融合，按 db_chunk_id 对齐（绕开线上 _fusion 的 chunk_id 不一致 bug）。"""
+def _weighted_fusion(
+    bm25: list[tuple[int, float]],
+    vec: list[tuple[int, float]],
+    bm25_weight: float | None = None,
+) -> list[tuple[int, float]]:
+    """加权融合，按 db_chunk_id 对齐（绕开线上 _fusion 的 chunk_id 不一致 bug）。
+
+    两路权重互补（和为 1），权重扫描才是可比的插值：
+    bm25_weight=0 时排序恒等于纯向量，=1 时恒等于纯 BM25。
+    """
+    w = settings.bm25_weight if bm25_weight is None else bm25_weight
+    vw = 1.0 - w
     scores: dict[int, float] = {}
     for cid, s in bm25:
-        scores[cid] = scores.get(cid, 0.0) + settings.bm25_weight * s
+        scores[cid] = scores.get(cid, 0.0) + w * s
     for cid, s in vec:
-        scores[cid] = scores.get(cid, 0.0) + settings.vector_weight * s
+        scores[cid] = scores.get(cid, 0.0) + vw * s
     return sorted(scores.items(), key=lambda x: x[1], reverse=True)
 
 
-def _rrf_fusion(bm25: list[tuple[int, float]], vec: list[tuple[int, float]]) -> list[tuple[int, float]]:
-    """RRF(k=60) 名次融合。rank 从 0 起。"""
+def _rrf_fusion(
+    bm25: list[tuple[int, float]],
+    vec: list[tuple[int, float]],
+    k: int = RRF_K,
+) -> list[tuple[int, float]]:
+    """RRF 名次融合。rank 从 0 起。k 越小，靠前名次的权重越集中。"""
     scores: dict[int, float] = {}
     for rank, (cid, _) in enumerate(bm25):
-        scores[cid] = scores.get(cid, 0.0) + 1.0 / (RRF_K + rank + 1)
+        scores[cid] = scores.get(cid, 0.0) + 1.0 / (k + rank + 1)
     for rank, (cid, _) in enumerate(vec):
-        scores[cid] = scores.get(cid, 0.0) + 1.0 / (RRF_K + rank + 1)
+        scores[cid] = scores.get(cid, 0.0) + 1.0 / (k + rank + 1)
     return sorted(scores.items(), key=lambda x: x[1], reverse=True)
+
+
+def _parse_strategy(spec: str) -> tuple[str, float | None, str | None]:
+    """解析策略名：'weighted:0.3+xrerank' → ('weighted', 0.3, 'cross')。
+
+    语法：`<name>[:<param>][+rerank|+xrerank]`
+      - weighted 的 param 是 bm25_weight
+      - rrf 的 param 是 k
+      - `+rerank`  走线上降级精排（同源多样性惩罚，脚本内复刻）
+      - `+xrerank` 走真 cross-encoder（bge-reranker-v2-m3，需装 FlagEmbedding）
+    """
+    rerank_mode: str | None = None
+    for suffix, mode in (("+xrerank", "cross"), ("+rerank", "fallback")):
+        if spec.endswith(suffix):
+            rerank_mode = mode
+            spec = spec[: -len(suffix)]
+            break
+    name, _, param = spec.partition(":")
+    return name, (float(param) if param else None), rerank_mode
+
+
+def _fallback_rerank(
+    ranked: list[tuple[int, float]],
+    meta: dict[int, dict],
+) -> list[tuple[int, float]]:
+    """复刻 `Reranker._score_rerank` 的降级精排逻辑。
+
+    本机没装 FlagEmbedding，线上跑的就是这一支，所以消融必须测它：
+    按分降序 → 位置衰减 0.01 → 同源文档累进扣 0.03 → 重排。
+
+    注意：位置衰减是单调的，不会改变顺序；真正会重排的只有「同源惩罚」——
+    所以这一支的本质是**提升来源多样性**，不是提升语义相关性。
+    """
+    ordered = sorted(ranked, key=lambda x: x[1], reverse=True)
+    seen: dict[str, int] = {}
+    out: list[tuple[int, float]] = []
+    for i, (cid, score) in enumerate(ordered):
+        src = meta.get(cid, {}).get("source_document", "")
+        penalty = seen.get(src, 0) * 0.03
+        out.append((cid, round(max(0.0, score - i * 0.01 - penalty), 4)))
+        seen[src] = seen.get(src, 0) + 1
+    return sorted(out, key=lambda x: x[1], reverse=True)
+
+
+_RERANKER = None
+
+
+def _get_reranker():
+    """复用同一个 Reranker 实例：交叉编码器加载要几秒，不能每条 query 重建。"""
+    global _RERANKER
+    if _RERANKER is None:
+        from app.rag.reranker import Reranker
+        _RERANKER = Reranker()
+    return _RERANKER
+
+
+async def _cross_rerank(
+    query: str,
+    ranked: list[tuple[int, float]],
+    meta: dict[int, dict],
+) -> list[tuple[int, float]]:
+    """用真 cross-encoder 精排：tuple 列表与 RetrievalResult 互转。"""
+    from app.rag.retriever import RetrievalResult
+
+    reranker = _get_reranker()
+    results = [
+        RetrievalResult(
+            chunk_id=str(cid),
+            content=meta.get(cid, {}).get("content", ""),
+            score=float(score),
+            source_document=meta.get(cid, {}).get("source_document", ""),
+            db_chunk_id=cid,
+        )
+        for cid, score in ranked
+    ]
+    reranked = await reranker.rerank(query, results)
+    return [(r.db_chunk_id, r.score) for r in reranked]
 
 
 # ── 指标 ───────────────────────────────────────────────────────────────────────
-
 
 def hit_at_k(ranked: list[int], relevant: set[int], k: int) -> float:
     return 1.0 if any(cid in relevant for cid in ranked[:k]) else 0.0
@@ -268,26 +400,45 @@ def all_recall_at_k(ranked: list[int], relevant: set[int], k: int) -> float:
 # ── 单策略评估 ─────────────────────────────────────────────────────────────────
 
 
-async def eval_strategy(name: str, queries: list[dict]) -> dict:
-    """对一组 query 跑指定策略，返回指标汇总。"""
+async def eval_strategy(
+    spec: str, queries: list[dict], meta: dict[int, dict], wide_k: int | None = None,
+) -> dict:
+    """对一组 query 跑指定策略，返回指标汇总。
+
+    spec 语法见 `_parse_strategy`：`weighted:0.3` / `rrf:60` / `weighted:0.3+rerank`。
+    所有策略最终都截断到 RECALL_K 条，保证指标口径一致。
+    wide_k 覆盖精排前的宽召回条数：CPU 跑交叉编码器时按 token 数线性变慢，需要能调小。
+    """
+    name, param, rerank_mode = _parse_strategy(spec)
+    # 走精排时先宽召回，精排后统一截断回 RECALL_K
+    k = (wide_k or WIDE_K) if rerank_mode else RECALL_K
+
     per_q = []
     for q in queries:
         # 相关 chunk 已在 resolve_qrels 阶段解析成 db_chunk_id
         relevant_db = set(q["relevant_db"])
+        query = q["query"]
+
         if name == "bm25":
-            ranked = bm25_search(q["query"])
+            ranked = bm25_search(query, k=k)
         elif name == "vector":
-            ranked = await vector_search(q["query"])
+            ranked = await vector_search(query, k=k)
         elif name == "weighted":
-            b = bm25_search(q["query"])
-            v = await vector_search(q["query"])
-            ranked = _weighted_fusion(b, v)
+            b = bm25_search(query, k=k)
+            v = await vector_search(query, k=k)
+            ranked = _weighted_fusion(b, v, param)
         elif name == "rrf":
-            b = bm25_search(q["query"])
-            v = await vector_search(q["query"])
-            ranked = _rrf_fusion(b, v)
+            b = bm25_search(query, k=k)
+            v = await vector_search(query, k=k)
+            ranked = _rrf_fusion(b, v, int(param) if param is not None else RRF_K)
         else:
-            raise ValueError(name)
+            raise ValueError(f"未知策略：{spec}")
+
+        if rerank_mode == "fallback":
+            ranked = _fallback_rerank(ranked, meta)
+        elif rerank_mode == "cross":
+            ranked = await _cross_rerank(query, ranked, meta)
+        ranked = ranked[:RECALL_K]
 
         ids = [cid for cid, _ in ranked]
         per_q.append({
@@ -343,7 +494,7 @@ async def eval_strategy(name: str, queries: list[dict]) -> dict:
         if g:
             by_difficulty[d] = g
 
-    return {"strategy": name, "total": total, "by_bucket": by_bucket,
+    return {"strategy": spec, "total": total, "by_bucket": by_bucket,
             "by_difficulty": by_difficulty, "multi": multi, "per_query": per_q}
 
 
@@ -389,24 +540,28 @@ def _group(per_q: list[dict], key: str, value: str) -> dict | None:
 
 def _print_table(results: list[dict]) -> None:
     names = [r["strategy"] for r in results]
-    header = f"{'指标':<10}" + "".join(f"{n:>12}" for n in names)
+    # 列宽按最长策略名自适应，否则 weighted:0.1 这类名字会把表头挤成一坨
+    cw = max(12, max(len(n) for n in names) + 2)
+    lw = 12  # 行标签列宽
+
+    header = f"{'指标':<{lw}}" + "".join(f"{n:>{cw}}" for n in names)
     print("\n" + "=" * len(header))
     print(header)
     print("=" * len(header))
     for metric in ["hit1", "hit3", "hit5", "mrr10", "ndcg5", "recall5", "allrecall5"]:
-        row = f"{metric:<10}"
+        row = f"{metric:<{lw}}"
         for r in results:
-            row += f"{r['total'][metric]:>12.4f}"
+            row += f"{r['total'][metric]:>{cw}.4f}"
         print(row)
     print("=" * len(header))
 
     # 分桶 Hit@5
     print("\n分桶 Hit@5：")
     for b in BUCKETS:
-        row = f"  {b:<12}"
+        row = f"  {b:<{lw - 2}}"
         for r in results:
             cell = r["by_bucket"].get(b)
-            row += f"{(cell['hit5'] if cell else 0.0):>12.4f}"
+            row += f"{(cell['hit5'] if cell else 0.0):>{cw}.4f}"
         print(row)
 
     # 多跳口径：只有标注 ≥2 个相关 chunk 的 query，才能看出「证据有没有凑齐」
@@ -416,29 +571,93 @@ def _print_table(results: list[dict]) -> None:
         print("\n多跳口径（仅标注 ≥2 个相关 chunk 的 query）：")
         for metric in ["n", "hit5", "recall5", "allrecall5"]:
             for k in keys:
-                row = f"  {k + '.' + metric:<26}"
+                row = f"  {k + '.' + metric:<{lw + 14}}"
                 for r in results:
                     cell = r["multi"].get(k)
                     if cell is None:
-                        row += f"{'—':>12}"
+                        row += f"{'—':>{cw}}"
                     elif metric == "n":
-                        row += f"{cell['n']:>12d}"
+                        row += f"{cell['n']:>{cw}d}"
                     else:
-                        row += f"{cell[metric]:>12.4f}"
+                        row += f"{cell[metric]:>{cw}.4f}"
                 print(row)
 
 
+def _print_verdict(results: list[dict]) -> None:
+    """P3-A 结论汇总：每个指标挑出最优策略，并给出与最差者的极差。
+
+    表格能看出「谁高谁低」，但看不出「这个差距值不值得换」——
+    极差就是判断依据：极差小于 1 条 query 的占比（1/83 ≈ 0.012）时，差异不可信。
+    """
+    print("\n" + "=" * 72)
+    print("P3-A 结论：各指标最优策略")
+    print("=" * 72)
+
+    metrics = [
+        ("单跳 Hit@1", "hit1"),
+        ("MRR@10", "mrr10"),
+        ("nDCG@5", "ndcg5"),
+        ("Hit@5", "hit5"),
+        ("recall@5", "recall5"),
+        ("allrecall@5（全体）", "allrecall5"),
+    ]
+    for label, metric in metrics:
+        best = max(results, key=lambda r: r["total"][metric])
+        worst = min(r["total"][metric] for r in results)
+        print(
+            f"  {label:<22}{best['strategy']:<22}"
+            f"{best['total'][metric]:.4f}   (极差 {best['total'][metric] - worst:+.4f})"
+        )
+
+    # 多跳子集：只有标注 ≥2 个相关 chunk 的 query 才有区分度
+    multi = [
+        (r["strategy"], r["multi"]["overall"]["allrecall5"])
+        for r in results
+        if "overall" in r["multi"]
+    ]
+    if multi:
+        best_s, best_v = max(multi, key=lambda x: x[1])
+        print(f"  {'allrecall@5（多跳子集）':<22}{best_s:<22}{best_v:.4f}")
+
+
 async def main() -> None:
-    parser = argparse.ArgumentParser(description="四路检索基线跑分")
-    parser.add_argument("--strategy", choices=["bm25", "vector", "weighted", "rrf"],
-                        default=None, help="只跑一路")
+    parser = argparse.ArgumentParser(description="四路检索基线跑分 + P3-A 消融实验")
+    parser.add_argument(
+        "--strategy", default=None,
+        help="只跑指定策略，逗号分隔；如 weighted:0.1,rrf:60,weighted:0.3+rerank",
+    )
     parser.add_argument("--json", action="store_true", help="输出完整 JSON")
+    parser.add_argument(
+        "--limit", type=int, default=None,
+        help="只跑前 N 条 query（多跳题优先保留）；交叉编码器在 CPU 上很慢时用来缩小样本",
+    )
+    parser.add_argument(
+        "--wide-k", type=int, default=None,
+        help="精排前宽召回条数，默认 20；CPU 环境下建议降到 5~10",
+    )
+    parser.add_argument(
+        "--bucket", default=None,
+        help="只跑指定分桶（如 单品属性）；配合 --limit 做分层抽样",
+    )
     args = parser.parse_args()
 
     queries = load_queries()
     rows = await load_chunk_rows()
     queries, skipped = resolve_qrels(queries, rows)
     print(f"[eval] 索引中 {len(rows)} 个 chunk，标注解析后 {len(queries)} 条 query 有效\n")
+
+    if args.bucket:
+        queries = [q for q in queries if q.get("bucket") == args.bucket]
+        print(f"[eval] --bucket 生效：{args.bucket}，{len(queries)} 条\n")
+
+    if args.limit and args.limit < len(queries):
+        # 多跳题（标注 ≥2 个相关 chunk）优先，其余按原顺序补齐：多跳是最需要精排的信号
+        multi_first = sorted(queries, key=lambda q: len(q["relevant_db"]) < 2)
+        queries = multi_first[: args.limit]
+        print(f"[eval] --limit 生效：随机取 {len(queries)} 条（多跳优先）\n")
+
+    # 精排降级分支要读 source_document 做同源惩罚，先把 id → 元数据建好
+    meta = {r["db_chunk_id"]: r for r in rows}
 
     # 关键：eval 是独立进程，不会走 FastAPI lifespan，BM25 单例是空的，
     # 必须显式从 pickle 加载，否则 bm25_store.is_ready=False → _bm25_search 直接返回空 → BM25 全 0 分
@@ -447,17 +666,21 @@ async def main() -> None:
         bm25_store.load(BM25_INDEX_PATH)
         print(f"[eval] 已加载 BM25 索引：{len(bm25_store)} docs\n")
 
-    strategies = [args.strategy] if args.strategy else ["bm25", "vector", "weighted", "rrf"]
+    if args.strategy:
+        strategies = [s.strip() for s in args.strategy.split(",") if s.strip()]
+    else:
+        strategies = list(DEFAULT_STRATEGIES)
 
     results = []
-    for name in strategies:
-        r = await eval_strategy(name, queries)
+    for spec in strategies:
+        r = await eval_strategy(spec, queries, meta, wide_k=args.wide_k)
         results.append(r)
 
     if args.json:
         print(json.dumps(results, ensure_ascii=False, indent=2))
     else:
         _print_table(results)
+        _print_verdict(results)
         note = f"[eval] 统计口径：{len(queries)} 条有效 query"
         if skipped:
             note += f"（已剔除 {skipped} 条标注无法解析）"

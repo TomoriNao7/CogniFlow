@@ -90,6 +90,7 @@ async def get_trace(trace_id: int) -> dict:
         "retrieval_top_k": mt.retrieval_top_k,
         "retrieval_duration_ms": mt.retrieval_duration_ms,
         "rerank_model": mt.rerank_model,
+        "rerank_mode": mt.rerank_mode,
         "rerank_duration_ms": mt.rerank_duration_ms,
         "generation_model": mt.generation_model,
         "generation_prompt_tokens": mt.generation_prompt_tokens,

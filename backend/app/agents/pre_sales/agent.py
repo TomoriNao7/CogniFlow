@@ -132,6 +132,7 @@ class PreSalesAgent:
         t0 = time.monotonic()
         if not state["retrieved_docs"]:
             state["trace"]["rerank_ms"] = 0
+            state["trace"]["rerank_mode"] = self.reranker.mode
             return state
         try:
             from app.rag.retriever import RetrievalResult
@@ -141,6 +142,7 @@ class PreSalesAgent:
                 for d in state["retrieved_docs"]
             ]
             reranked = await self.reranker.rerank(state["user_query"], raw)
+            state["trace"]["rerank_mode"] = self.reranker.mode
             state["retrieved_docs"] = [
                 {"id": r.chunk_id, "content": r.content, "score": r.score, "source": r.source_document}
                 for r in reranked
