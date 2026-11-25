@@ -1,6 +1,5 @@
 """聊天 REST API 端点 —— 带 PostgreSQL 持久化。"""
 
-from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException
 
@@ -8,6 +7,7 @@ from app.agents.router import classify_intent, route_to_agent
 from app.config import settings
 from app.core.security import Severity, SafetyAction, content_safety, mask_sensitive
 from app.models.database import (
+    Agent,
     Conversation,
     Feedback,
     Message,
@@ -15,6 +15,7 @@ from app.models.database import (
     TraceFunctionCall,
     TraceRetrievalChunk,
     User,
+    utcnow_naive,
 )
 from app.models.engine import async_session_factory
 from app.schemas.chat import ChatRequest, ChatResponse, FeedbackRequest
@@ -43,16 +44,18 @@ async def _get_or_create_user(user_id: str) -> int:
 async def _save_conversation(user_db_id: int, intent_agent: str) -> int:
     """新建会话记录，返回 conversation_id。"""
     async with async_session_factory() as session:
+        # agent_id 是外键：按名字查真实 id，缺种子时留空，不写死序号
+        from sqlalchemy import select
+
+        agent_db_id = (
+            await session.execute(select(Agent.id).where(Agent.name == intent_agent))
+        ).scalar_one_or_none()
         conv = Conversation(
             user_id=user_db_id,
-            agent_id={
-                "pre_sales": 1,
-                "during_sales": 2,
-                "after_sales": 3,
-            }.get(intent_agent, 1),
+            agent_id=agent_db_id,
             title=None,
             source="api",
-            last_message_at=datetime.now(timezone.utc),
+            last_message_at=utcnow_naive(),
         )
         session.add(conv)
         await session.commit()
@@ -74,7 +77,7 @@ async def _save_message(conversation_id: int, role: str, content: str) -> int:
         await session.execute(
             update(Conversation)
             .where(Conversation.id == conversation_id)
-            .values(last_message_at=datetime.now(timezone.utc))
+            .values(last_message_at=utcnow_naive())
         )
         await session.commit()
         await session.refresh(msg)

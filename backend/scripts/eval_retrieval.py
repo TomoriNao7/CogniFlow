@@ -41,6 +41,12 @@
     weighted ：加权融合（0.3*bm25 + 0.7*vector），按 db_chunk_id 对齐（绕开线上 _fusion 的 chunk_id 不一致 bug）
     rrf      ：RRF(k=60) 名次融合，只看名次不看分数
 
+P3-C-1 Multi-Query 实验（同样只动本脚本）：
+    multiquery_union:N ：原 query + N 个 LLM 改写变体各走向量检索，按「被几个变体命中」投票合并
+    multiquery_rrf:N   ：同上，但用 RRF 名次融合
+    为什么必须先测再决定：Multi-Query 增强的是**召回**，而当前四桶 Hit@5 已到 1.0，
+    真瓶颈在排序精度；若测出来无差异，结论就是「测过并否决」，不写进简历。
+
 P3-A 三个消融实验（只动本脚本，不碰线上代码）：
     1. 权重扫描   weighted:0.1 / 0.2 / 0.3 / 0.5 —— 找 bm25_weight 的最优点。
                   weighted:0.0 在排序上恒等于 vector，故不单列，直接用 vector 列当 w=0 的锚。
@@ -62,6 +68,7 @@ import asyncio
 import json
 import sys
 import os
+import time
 from collections import defaultdict
 from pathlib import Path
 
@@ -270,12 +277,96 @@ def _rrf_fusion(
     return sorted(scores.items(), key=lambda x: x[1], reverse=True)
 
 
+# ── Multi-Query（P3-C-1）────────────────────────────────────────────────────
+
+# 变体缓存：同一条 query 会跑过多个 Multi-Query 策略（union/rrf × N），
+# 不缓存的话每跑一个策略都要重新调 LLM，一轮评估的调用次数会翻好几倍。
+_MQ_VARIANT_CACHE: dict[tuple[str, int], list[str]] = {}
+
+# 累计成本：LLM 调用次数与总耗时，跑完要报，否则不知道这路便宜不便宜
+_MQ_COST: dict[str, float] = {"calls": 0, "ms": 0.0}
+
+
+async def _gen_variants(query: str, n: int) -> list[str]:
+    """让 LLM 把一条问题改写成 n 个语义相同、措辞不同的问句。
+
+    Multi-Query 治的是「用户措辞和文档措辞对不上」，
+    所以要的是**换个说法**，不是补充条件、不是拆解问题。
+    生成失败（网络/JSON 不合规）时返回空列表，退化为原 query 单路检索。
+    """
+    key = (query, n)
+    if key in _MQ_VARIANT_CACHE:
+        return _MQ_VARIANT_CACHE[key]
+
+    from openai import AsyncOpenAI
+
+    client = AsyncOpenAI(api_key=settings.qwen_api_key, base_url=settings.qwen_base_url)
+    prompt = (
+        f"把下面的电商客服问题改写成 {n} 个语义完全相同的问句，"
+        "只换说法、不增加条件、不拆解、不解释，每条不超过 30 字。\n"
+        '只输出 JSON：{"variants": ["...", "..."]}\n\n'
+        f"问题：{query}"
+    )
+    t0 = time.time()
+    try:
+        resp = await client.chat.completions.create(
+            model=settings.intent_model or settings.llm_model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            extra_body=settings.thinking_extra(False),
+        )
+        _MQ_COST["calls"] += 1
+        _MQ_COST["ms"] += (time.time() - t0) * 1000
+        raw = (resp.choices[0].message.content or "").strip()
+        start, end = raw.find("{"), raw.rfind("}")
+        data = json.loads(raw[start : end + 1])
+        variants = [str(v).strip() for v in data.get("variants", []) if str(v).strip()]
+    except Exception as exc:  # 变体生成失败不该让整轮评估崩掉
+        print(f"[mq] 变体生成失败，退化为单路：{type(exc).__name__}: {exc}")
+        variants = []
+
+    variants = variants[:n]
+    _MQ_VARIANT_CACHE[key] = variants
+    return variants
+
+
+async def _multiquery_search(
+    query: str, n: int, mode: str, k: int = RECALL_K,
+) -> list[tuple[int, float]]:
+    """原问题 + n 个变体各自走向量检索，然后合并成一个排序。
+
+    union：按「被几个变体命中」投票，票数相同再比最佳名次。
+    rrf  ：把每个变体当成一条并列的召回通道，走名次融合。
+    """
+    variants = await _gen_variants(query, n)
+    lists = [await vector_search(query, k=k)]
+    for v in variants:
+        lists.append(await vector_search(v, k=k))
+
+    if mode == "rrf":
+        scores: dict[int, float] = {}
+        for lst in lists:
+            for rank, (cid, _) in enumerate(lst):
+                scores[cid] = scores.get(cid, 0.0) + 1.0 / (RRF_K + rank + 1)
+        return sorted(scores.items(), key=lambda x: x[1], reverse=True)
+
+    votes: dict[int, int] = {}
+    best_rank: dict[int, int] = {}
+    for lst in lists:
+        for rank, (cid, _) in enumerate(lst):
+            votes[cid] = votes.get(cid, 0) + 1
+            best_rank[cid] = min(best_rank.get(cid, 10**9), rank)
+    ordered = sorted(votes, key=lambda cid: (-votes[cid], best_rank[cid]))
+    return [(cid, float(votes[cid])) for cid in ordered]
+
+
 def _parse_strategy(spec: str) -> tuple[str, float | None, str | None]:
     """解析策略名：'weighted:0.3+xrerank' → ('weighted', 0.3, 'cross')。
 
     语法：`<name>[:<param>][+rerank|+xrerank]`
       - weighted 的 param 是 bm25_weight
       - rrf 的 param 是 k
+      - multiquery_union / multiquery_rrf 的 param 是变体个数 N（缺省 3）
       - `+rerank`  走线上降级精排（同源多样性惩罚，脚本内复刻）
       - `+xrerank` 走真 cross-encoder（bge-reranker-v2-m3，需装 FlagEmbedding）
     """
@@ -431,6 +522,11 @@ async def eval_strategy(
             b = bm25_search(query, k=k)
             v = await vector_search(query, k=k)
             ranked = _rrf_fusion(b, v, int(param) if param is not None else RRF_K)
+        elif name in ("multiquery_union", "multiquery_rrf"):
+            # param 是变体个数 N；单路检索内部已按 k 取够，无需再融合 BM25
+            n = int(param) if param is not None else 3
+            mode = "rrf" if name.endswith("_rrf") else "union"
+            ranked = await _multiquery_search(query, n, mode, k=k)
         else:
             raise ValueError(f"未知策略：{spec}")
 
@@ -639,6 +735,10 @@ async def main() -> None:
         "--bucket", default=None,
         help="只跑指定分桶（如 单品属性）；配合 --limit 做分层抽样",
     )
+    parser.add_argument(
+        "--bm25-tokenizer", default=None,
+        help="覆盖 BM25 分词器：char（单字）/ jieba（词典）/ bigram（二元组）",
+    )
     args = parser.parse_args()
 
     queries = load_queries()
@@ -666,6 +766,11 @@ async def main() -> None:
         bm25_store.load(BM25_INDEX_PATH)
         print(f"[eval] 已加载 BM25 索引：{len(bm25_store)} docs\n")
 
+    # 分词器实验：只读原文，重建语料与倒排，不需要重新入库
+    if args.bm25_tokenizer:
+        bm25_store.set_tokenizer(args.bm25_tokenizer)
+    print(f"[eval] BM25 分词器：{bm25_store.tokenizer}（{len(bm25_store)} 条语料）\n")
+
     if args.strategy:
         strategies = [s.strip() for s in args.strategy.split(",") if s.strip()]
     else:
@@ -685,6 +790,14 @@ async def main() -> None:
         if skipped:
             note += f"（已剔除 {skipped} 条标注无法解析）"
         print(f"\n{note}")
+        if _MQ_COST["calls"]:
+            avg = _MQ_COST["ms"] / _MQ_COST["calls"]
+            cached = len(_MQ_VARIANT_CACHE)
+            print(
+                f"[eval] Multi-Query 成本：LLM 调用 {int(_MQ_COST['calls'])} 次，"
+                f"平均 {avg:.0f} ms/次，缓存 {cached} 条 query 的变体"
+                f"（命中缓存的策略不重复计费）"
+            )
 
 
 if __name__ == "__main__":

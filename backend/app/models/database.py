@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import (
@@ -23,6 +23,16 @@ from pgvector.sqlalchemy import Vector
 
 class Base(DeclarativeBase):
     pass
+
+
+def utcnow_naive() -> datetime:
+    """当前 UTC 时间，不带时区。
+
+    库里所有时间列都是 timestamp without time zone，直接写 tz-aware 的
+    datetime 会让 asyncpg 抛 DataError（can't subtract offset-naive and
+    offset-aware datetimes），并把整个落库事务打回去。统一在入口去掉时区。
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 # ── 模型注册表 ────────────────────────────────────────────────────────────

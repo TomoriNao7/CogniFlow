@@ -83,6 +83,11 @@ class Settings:
     # 比 0.1 少命中 6 条，是噪声地板（1 条 ≈ 1.2pt）的 6 倍。
     bm25_weight: float = 0.1
     vector_weight: float = 0.9
+    # BM25 分词器：bigram（字符二元组，默认）/ char（单字）/ jieba（词典分词）
+    # 单字切分让「电池」和「电饭煲」共享 token，BM25 召回的是「提到这些字的
+    # chunk」而非「有答案的 chunk」。83 条实测 Hit@1：char 0.5783 /
+    # jieba 0.5663 / bigram 0.6265，故默认 bigram。
+    bm25_tokenizer: str = os.getenv("BM25_TOKENIZER", "bigram")
 
     # 深度思考开关
     # qwen4-max 默认 enable_thinking=true、reasoning_effort=high，

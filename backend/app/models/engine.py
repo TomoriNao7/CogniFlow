@@ -51,6 +51,26 @@ async def init_db() -> None:
             "ADD COLUMN IF NOT EXISTS rerank_mode VARCHAR(16)"
         ))
 
+        # 三个业务 Agent 是 conversations/intent_definitions 的外键目标，
+        # 空表会让 /chat 落库时撞 ForeignKeyViolationError，这里幂等补种子。
+        await conn.execute(
+            text(
+                """
+                INSERT INTO agents (name, display_name, model, status)
+                VALUES
+                    ('pre_sales',    '售前咨询', :pre,    'active'),
+                    ('during_sales', '售中服务', :during, 'active'),
+                    ('after_sales',  '售后服务', :after,  'active')
+                ON CONFLICT (name) DO NOTHING
+                """
+            ),
+            {
+                "pre": settings.pre_sales_model or settings.llm_model,
+                "during": settings.during_sales_model or settings.llm_model,
+                "after": settings.after_sales_model or settings.llm_model,
+            },
+        )
+
 
 async def get_session() -> AsyncSession:
     """提供 async session 供依赖注入。"""

@@ -62,6 +62,8 @@ class HybridRetriever:
                 score=score,
                 source_document=doc.source_document,
                 db_chunk_id=doc.db_chunk_id,
+                # 旧 pickle 的 Bm25Doc 没有该字段，取不到就当 0
+                document_id=getattr(doc, "document_id", 0),
             )
             for doc, score in hits
         ]
@@ -108,7 +110,19 @@ class HybridRetriever:
                     dropped += 1
                     continue
                 scores[cid] = scores.get(cid, 0.0) + weight * r.score
-                meta.setdefault(cid, r)
+                prev = meta.get(cid)
+                if prev is None:
+                    meta[cid] = r
+                else:
+                    # 两路对同一 chunk 的描述可能互补，补齐缺失字段
+                    meta[cid] = RetrievalResult(
+                        chunk_id=prev.chunk_id or r.chunk_id,
+                        content=prev.content or r.content,
+                        score=prev.score,
+                        source_document=prev.source_document or r.source_document,
+                        db_chunk_id=cid,
+                        document_id=prev.document_id or r.document_id,
+                    )
 
         if dropped:
             logger.warning("融合丢弃 %d 条缺少 db_chunk_id 的结果，索引可能未回填主键", dropped)

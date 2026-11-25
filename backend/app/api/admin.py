@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import shutil
-from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel
@@ -45,7 +44,7 @@ class AgentUpdate(BaseModel):
 @router.get("/dashboard")
 async def dashboard_stats():
     async with async_session_factory() as session:
-        now = datetime.now(timezone.utc)
+        now = utcnow_naive()
         today = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
         total_conv = (await session.execute(select(func.count(Conversation.id)))).scalar() or 0
@@ -284,7 +283,7 @@ async def update_agent(agent_id: int, body: AgentUpdate):
             agent.model = body.model
         if body.system_prompt is not None:
             agent.system_prompt = body.system_prompt
-        agent.updated_at = datetime.now(timezone.utc)
+        agent.updated_at = utcnow_naive()
         await session.commit()
 
         # 更新检索参数

@@ -261,6 +261,7 @@ async def ingest_async(rebuild: bool = False) -> dict:
                     heading=chunk.metadata.get("heading", ""),
                     chunk_index=chunk.chunk_index,
                     db_chunk_id=cid,
+                    document_id=doc_id,
                 )
             )
 
@@ -316,6 +317,7 @@ async def ingest_file_async(file_path: str) -> dict:
             heading=chunk.metadata.get("heading", ""),
             chunk_index=chunk.chunk_index,
             db_chunk_id=cid,
+            document_id=doc_id,
         )
         for chunk, cid in zip(chunks, chunk_db_ids)
     ]

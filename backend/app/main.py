@@ -29,7 +29,10 @@ async def lifespan(app: FastAPI):
 
         if os.path.exists(BM25_INDEX_PATH) and not bm25_store.is_ready:
             bm25_store.load(BM25_INDEX_PATH)
-            print(f"[startup] BM25 index loaded: {len(bm25_store)} docs")
+            print(
+                f"[startup] BM25 index loaded: {len(bm25_store)} docs "
+                f"(tokenizer={bm25_store.tokenizer})"
+            )
     except Exception as e:
         print(f"[startup] RAG index load warning: {e}")
 
@@ -99,6 +102,9 @@ async def health():
         "vector": vector_store.is_ready,
         "bm25": bm25_store.is_ready,
         "bm25_count": len(bm25_store),
+        # 当前 BM25 分词器：char / jieba / bigram。换分词器后语料会重建，
+        # 这里能确认进程真的用上了配置值。
+        "bm25_tokenizer": bm25_store.tokenizer,
         "database": db_ok,
         # 精排是否真的生效：off / cross / fallback。配置写着模型名而实际
         # 跑降级分支时，只有这里能看出来。

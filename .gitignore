@@ -42,3 +42,5 @@ prototype/
 
 # AI 协作规约（本地文件，不入库）
 AGENTS.md
+# 实验快照与评估记录（本地资料，不入库）
+testdata/
