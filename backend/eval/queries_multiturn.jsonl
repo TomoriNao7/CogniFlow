@@ -1,0 +1,47 @@
+# 多轮对话评估集（C-2）—— 用于测 Query Rewrite / 多轮上下文检索
+# 每行：{"group": 组号, "turn": 轮次, "history": 前序用户问句, "query": 本轮问句,
+#        "bucket": 五桶之一, "difficulty": easy|hard, "answer_scope": self|dep_turn,
+#        "depends_on": 依赖的前序轮次(可空), "relevant": [{"doc": 文档名, "anchor": 锚点行}]}
+#
+# 设计意图：turn1 独立可答（answer_scope=self），后续轮次制造指代/省略/换主体/追问，
+# 标注 depends_on 指向真正承载答案实体的前序轮。Query Rewrite 的收益只能在这里测，
+# 单轮集（queries.jsonl）里的问句全部自足，测不出来。
+#
+# doc 键沿用 queries.jsonl 的显示分隔符 " / "（带空格），.faq 文档去掉扩展名。
+# anchor 必须是目标 chunk 内的整行，层级需与原文完全一致。
+{"group":"g01","turn":1,"history":[],"query":"iPhone 15 Pro Max 的电池和屏幕规格怎么样","bucket":"单品属性","difficulty":"easy","answer_scope":"self","depends_on":null,"relevant":[{"doc":"pre_sales / 商品目录完整版","anchor":"### iPhone 15 Pro Max"}]}
+{"group":"g01","turn":2,"history":["iPhone 15 Pro Max 的电池和屏幕规格怎么样"],"query":"那它和 iPhone 15 Pro 相比主要差在哪","bucket":"单品属性","difficulty":"easy","answer_scope":"dep_turn","depends_on":1,"relevant":[{"doc":"pre_sales / 商品咨询细则","anchor":"Q: iPhone 15 Pro 和 iPhone 15 Pro Max 有什么区别？"}]}
+{"group":"g01","turn":3,"history":["iPhone 15 Pro Max 的电池和屏幕规格怎么样","那它和 iPhone 15 Pro 相比主要差在哪"],"query":"256GB 够用吗，还是直接上 512GB","bucket":"单品属性","difficulty":"hard","answer_scope":"dep_turn","depends_on":1,"relevant":[{"doc":"pre_sales / 商品咨询细则","anchor":"Q: 256GB 和 512GB 怎么选？"}]}
+{"group":"g01","turn":4,"history":["iPhone 15 Pro Max 的电池和屏幕规格怎么样","那它和 iPhone 15 Pro 相比主要差在哪","256GB 够用吗，还是直接上 512GB"],"query":"这个型号支持双卡双待吗","bucket":"单品属性","difficulty":"hard","answer_scope":"dep_turn","depends_on":1,"relevant":[{"doc":"pre_sales / 商品咨询细则","anchor":"Q: 这个手机支持双卡吗？"}]}
+{"group":"g02","turn":1,"history":[],"query":"AirPods Pro 2 的降噪表现怎么样","bucket":"单品属性","difficulty":"easy","answer_scope":"self","depends_on":null,"relevant":[{"doc":"pre_sales / 商品目录完整版","anchor":"### AirPods Pro 2 (USB-C)"}]}
+{"group":"g02","turn":2,"history":["AirPods Pro 2 的降噪表现怎么样"],"query":"相比上一代提升大吗，主要升级在哪","bucket":"单品属性","difficulty":"hard","answer_scope":"dep_turn","depends_on":1,"relevant":[{"doc":"pre_sales / 商品目录完整版","anchor":"### AirPods Pro 2 (USB-C)"}]}
+{"group":"g02","turn":3,"history":["AirPods Pro 2 的降噪表现怎么样","相比上一代提升大吗，主要升级在哪"],"query":"它能连安卓手机吗","bucket":"单品属性","difficulty":"hard","answer_scope":"dep_turn","depends_on":1,"relevant":[{"doc":"pre_sales / 商品咨询细则","anchor":"Q: AirPods Pro 2 能连安卓手机吗？"}]}
+{"group":"g02","turn":4,"history":["AirPods Pro 2 的降噪表现怎么样","相比上一代提升大吗，主要升级在哪","它能连安卓手机吗"],"query":"那看降噪参数主要看哪几个指标","bucket":"单品属性","difficulty":"hard","answer_scope":"dep_turn","depends_on":1,"relevant":[{"doc":"pre_sales / 商品咨询细则","anchor":"Q: 耳机降噪效果怎么看参数？"}]}
+{"group":"g03","turn":1,"history":[],"query":"价格保护具体是什么意思","bucket":"政策条款","difficulty":"easy","answer_scope":"self","depends_on":null,"relevant":[{"doc":"pre_sales / 价格保护与保价","anchor":"## 什么是价格保护"}]}
+{"group":"g03","turn":2,"history":["价格保护具体是什么意思"],"query":"那保价期有多长，从什么时候开始算","bucket":"政策条款","difficulty":"easy","answer_scope":"dep_turn","depends_on":1,"relevant":[{"doc":"pre_sales / 价格保护与保价","anchor":"## 保价期限"}]}
+{"group":"g03","turn":3,"history":["价格保护具体是什么意思","那保价期有多长，从什么时候开始算"],"query":"我是用优惠券买的，这种情况还能保价吗","bucket":"政策条款","difficulty":"hard","answer_scope":"dep_turn","depends_on":1,"relevant":[{"doc":"pre_sales / 价格保护与保价","anchor":"### 用了优惠券买的商品还能价保吗"}]}
+{"group":"g04","turn":1,"history":[],"query":"会员都有哪些等级，怎么升级","bucket":"促销与券","difficulty":"easy","answer_scope":"self","depends_on":null,"relevant":[{"doc":"pre_sales / 会员政策","anchor":"Q: 有哪些会员等级？如何升级？"}]}
+{"group":"g04","turn":2,"history":["会员都有哪些等级，怎么升级"],"query":"积分会过期吗","bucket":"促销与券","difficulty":"easy","answer_scope":"dep_turn","depends_on":1,"relevant":[{"doc":"pre_sales / 会员政策","anchor":"Q: 积分会过期吗？"}]}
+{"group":"g04","turn":3,"history":["会员都有哪些等级，怎么升级","积分会过期吗"],"query":"那 PLUS 的 95 折能和优惠券叠加吗","bucket":"促销与券","difficulty":"hard","answer_scope":"dep_turn","depends_on":1,"relevant":[{"doc":"pre_sales / 会员政策","anchor":"Q: PLUS 会员的 95 折能和优惠券叠加吗？"}]}
+{"group":"g04","turn":4,"history":["会员都有哪些等级，怎么升级","积分会过期吗","那 PLUS 的 95 折能和优惠券叠加吗"],"query":"积分具体能用来做什么","bucket":"促销与券","difficulty":"hard","answer_scope":"dep_turn","depends_on":1,"relevant":[{"doc":"pre_sales / 会员政策","anchor":"Q: 会员积分有什么用？"}]}
+{"group":"g05","turn":1,"history":[],"query":"618 大促是什么时候开始","bucket":"促销与券","difficulty":"easy","answer_scope":"self","depends_on":null,"relevant":[{"doc":"pre_sales / 促销规则","anchor":"## 618 年中大促"}]}
+{"group":"g05","turn":2,"history":["618 大促是什么时候开始"],"query":"跨店满减是怎么减的","bucket":"促销与券","difficulty":"easy","answer_scope":"dep_turn","depends_on":1,"relevant":[{"doc":"pre_sales / 促销规则","anchor":"### 跨店满减"}]}
+{"group":"g05","turn":3,"history":["618 大促是什么时候开始","跨店满减是怎么减的"],"query":"优惠券之间最多能叠几层","bucket":"促销与券","difficulty":"hard","answer_scope":"dep_turn","depends_on":1,"relevant":[{"doc":"pre_sales / 促销规则","anchor":"### 叠加规则"}]}
+{"group":"g06","turn":1,"history":[],"query":"下单时忘开发票了，还能补开吗","bucket":"政策条款","difficulty":"easy","answer_scope":"self","depends_on":null,"relevant":[{"doc":"during_sales / 发票规则","anchor":"Q: 下单时忘记开发票了，还能补开吗？"}]}
+{"group":"g06","turn":2,"history":["下单时忘开发票了，还能补开吗"],"query":"抬头能改成公司名字吗","bucket":"政策条款","difficulty":"hard","answer_scope":"dep_turn","depends_on":1,"relevant":[{"doc":"during_sales / 发票规则","anchor":"Q: 发票可以修改抬头吗？"}]}
+{"group":"g06","turn":3,"history":["下单时忘开发票了，还能补开吗","抬头能改成公司名字吗"],"query":"付款一直失败可能是什么原因","bucket":"售后流程","difficulty":"easy","answer_scope":"self","depends_on":null,"relevant":[{"doc":"during_sales / 支付指南","anchor":"## 支付失败常见原因"}]}
+{"group":"g06","turn":4,"history":["下单时忘开发票了，还能补开吗","抬头能改成公司名字吗","付款一直失败可能是什么原因"],"query":"要是重复扣款了要怎么处理","bucket":"售后流程","difficulty":"hard","answer_scope":"dep_turn","depends_on":3,"relevant":[{"doc":"during_sales / 支付指南","anchor":"### 重复扣款处理"}]}
+{"group":"g07","turn":1,"history":[],"query":"订单还显示待付款，能改收货地址吗","bucket":"售后流程","difficulty":"easy","answer_scope":"self","depends_on":null,"relevant":[{"doc":"during_sales / 订单状态与修改","anchor":"## 修改收货地址"}]}
+{"group":"g07","turn":2,"history":["订单还显示待付款，能改收货地址吗"],"query":"要是已经出库了呢，还能改吗","bucket":"售后流程","difficulty":"hard","answer_scope":"dep_turn","depends_on":1,"relevant":[{"doc":"during_sales / 订单状态与修改","anchor":"### 出库后改址"}]}
+{"group":"g07","turn":3,"history":["订单还显示待付款，能改收货地址吗","要是已经出库了呢，还能改吗"],"query":"那能不能直接换个商品","bucket":"售后流程","difficulty":"hard","answer_scope":"dep_turn","depends_on":1,"relevant":[{"doc":"during_sales / 订单状态与修改","anchor":"### 为什么不能改商品"}]}
+{"group":"g08","turn":1,"history":[],"query":"手机已经激活了，还能退货吗","bucket":"售后流程","difficulty":"easy","answer_scope":"self","depends_on":null,"relevant":[{"doc":"after_sales / 售后服务","anchor":"Q: 手机激活后还能退货吗？"}]}
+{"group":"g08","turn":2,"history":["手机已经激活了，还能退货吗"],"query":"退的话运费是谁出","bucket":"售后流程","difficulty":"easy","answer_scope":"dep_turn","depends_on":1,"relevant":[{"doc":"after_sales / 售后服务","anchor":"Q: 退货的运费谁承担？"}]}
+{"group":"g08","turn":3,"history":["手机已经激活了，还能退货吗","退的话运费是谁出"],"query":"退款大概多久能到账","bucket":"售后流程","difficulty":"easy","answer_scope":"dep_turn","depends_on":1,"relevant":[{"doc":"after_sales / 售后服务","anchor":"Q: 退款多久能到账？"}]}
+{"group":"g08","turn":4,"history":["手机已经激活了，还能退货吗","退的话运费是谁出","退款大概多久能到账"],"query":"从申请到钱到账一般要多久","bucket":"售后流程","difficulty":"hard","answer_scope":"dep_turn","depends_on":1,"relevant":[{"doc":"after_sales / 售后服务","anchor":"Q: 申请退货后多久可以收到退款？"}]}
+{"group":"g09","turn":1,"history":[],"query":"没有发票的话还能保修吗","bucket":"政策条款","difficulty":"easy","answer_scope":"self","depends_on":null,"relevant":[{"doc":"after_sales / 保修与维修政策","anchor":"### 没发票能保修吗"}]}
+{"group":"g09","turn":2,"history":["没有发票的话还能保修吗"],"query":"三包的起算时间是哪天","bucket":"政策条款","difficulty":"hard","answer_scope":"dep_turn","depends_on":1,"relevant":[{"doc":"after_sales / 保修与维修政策","anchor":"### 三包起算时间"}]}
+{"group":"g09","turn":3,"history":["没有发票的话还能保修吗","三包的起算时间是哪天"],"query":"修过一次之后，保修期怎么算","bucket":"政策条款","difficulty":"hard","answer_scope":"dep_turn","depends_on":1,"relevant":[{"doc":"after_sales / 保修与维修政策","anchor":"### 维修后保修期怎么算"}]}
+{"group":"g10","turn":1,"history":[],"query":"以旧换新具体是个什么流程","bucket":"售后流程","difficulty":"easy","answer_scope":"self","depends_on":null,"relevant":[{"doc":"after_sales / 以旧换新与回收","anchor":"## 以旧换新流程"}]}
+{"group":"g10","turn":2,"history":["以旧换新具体是个什么流程"],"query":"估价和最后给的钱差很多算正常吗","bucket":"售后流程","difficulty":"hard","answer_scope":"dep_turn","depends_on":1,"relevant":[{"doc":"after_sales / 以旧换新与回收","anchor":"### 预估价和最终价差很多正常吗"}]}
+{"group":"g10","turn":3,"history":["以旧换新具体是个什么流程","估价和最后给的钱差很多算正常吗"],"query":"要是新机最后退了，那台旧机怎么办","bucket":"跨实体规则","difficulty":"hard","answer_scope":"dep_turn","depends_on":1,"relevant":[{"doc":"after_sales / 以旧换新与回收","anchor":"### 旧机抵扣后新机退货，旧机怎么办"}]}
+{"group":"g10","turn":4,"history":["以旧换新具体是个什么流程","估价和最后给的钱差很多算正常吗","要是新机最后退了，那台旧机怎么办"],"query":"这个补贴能和优惠券一起用吗","bucket":"跨实体规则","difficulty":"hard","answer_scope":"dep_turn","depends_on":1,"relevant":[{"doc":"after_sales / 以旧换新与回收","anchor":"### 以旧换新能和优惠券叠加吗"}]}

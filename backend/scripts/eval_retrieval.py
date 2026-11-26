@@ -47,6 +47,14 @@ P3-C-1 Multi-Query 实验（同样只动本脚本）：
     为什么必须先测再决定：Multi-Query 增强的是**召回**，而当前四桶 Hit@5 已到 1.0，
     真瓶颈在排序精度；若测出来无差异，结论就是「测过并否决」，不写进简历。
 
+P3-C-3 Query Rewrite 实验（同样只动本脚本，需要 --multiturn 加载多轮评估集）：
+    qr:none    ：基线对照，不改写，直接拿当前轮问句检索
+    qr:concat  ：零成本，把历史各轮问句与当前问句拼接成自包含问句
+    qr:llm     ：让 LLM 依据历史把当前问句改写成自包含问句
+    三档都走同一套 weighted 融合检索，所以差异只来自「查询改写」，不来自检索。
+    为什么必须在多轮集上测：单轮集的每条问句本就自足，改写器只会原样返回，
+    必然测出「无差异」，那是尺子量不到，不是 QR 没用。QR 治的是指代/省略/换主体。
+
 P3-A 三个消融实验（只动本脚本，不碰线上代码）：
     1. 权重扫描   weighted:0.1 / 0.2 / 0.3 / 0.5 —— 找 bm25_weight 的最优点。
                   weighted:0.0 在排序上恒等于 vector，故不单列，直接用 vector 列当 w=0 的锚。
@@ -85,6 +93,8 @@ from app.rag.bm25_store import bm25_store
 
 EVAL_DIR = Path(__file__).parent.parent / "eval"
 QUERIES_PATH = EVAL_DIR / "queries.jsonl"
+# 多轮评估集（C-2）：测 Query Rewrite 必须用它，单轮集的问句本就自足，测不出改写效果
+MULTITURN_PATH = EVAL_DIR / "queries_multiturn.jsonl"
 
 # 检索召回条数（四路统一，取这个数再算 Hit@5/MRR@10 等）
 RECALL_K = 10
@@ -134,6 +144,29 @@ def load_queries() -> list[dict]:
             assert q.get("query"), f"第 {i} 行缺 query"
             assert q.get("relevant"), f"第 {i} 行缺 relevant"
             # 旧格式没有 difficulty 字段，默认按 easy 处理
+            q.setdefault("difficulty", "easy")
+            qs.append(q)
+    return qs
+
+
+def load_multiturn_queries() -> list[dict]:
+    """读取多轮评估集（C-2），字段校验与单轮集一致。
+
+    多轮集比单轮集多了 `group` / `turn` / `history` / `answer_scope` /
+    `depends_on`，Query Rewrite 用 `history` 改写当前问句，用 `answer_scope`
+    判断这条 query 是否本就依赖前序轮次。
+    """
+    if not MULTITURN_PATH.exists():
+        sys.exit(f"多轮评估集不存在：{MULTITURN_PATH}")
+    qs = []
+    with open(MULTITURN_PATH, encoding="utf-8") as f:
+        for i, line in enumerate(f, 1):
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            q = json.loads(line)
+            assert q.get("query"), f"第 {i} 行缺 query"
+            assert q.get("relevant"), f"第 {i} 行缺 relevant"
             q.setdefault("difficulty", "easy")
             qs.append(q)
     return qs
@@ -360,13 +393,87 @@ async def _multiquery_search(
     return [(cid, float(votes[cid])) for cid in ordered]
 
 
-def _parse_strategy(spec: str) -> tuple[str, float | None, str | None]:
+# ── Query Rewrite（P3-C-3）──────────────────────────────────────────────────
+
+# 改写缓存：同一条 (history, query, 档位) 只改写一次，多档策略共用结果
+_QR_CACHE: dict[tuple[tuple[str, ...], str, str], tuple[str, float, int]] = {}
+
+# 累计成本：LLM 调用次数与耗时，用来算「额外 P95 延迟」这条上线判据
+_QR_COST: dict[str, float] = {"calls": 0.0, "ms": 0.0}
+
+
+async def _rewrite_query(
+    history: list[str], query: str, mode: str
+) -> tuple[str, float, int]:
+    """把多轮对话的当前问句改写成自包含的检索问句。
+
+    三档：
+        none   ：不改写，原样返回（基线对照）
+        concat ：把历史各轮问句拼在当前问句前面，零成本、零调用
+        llm    ：让 LLM 依据历史把当前问句改写成一句自包含问句
+
+    返回 (改写后的问句, 本次耗时 ms, 是否触发 LLM 调用 0/1)。
+    LLM 失败时降级回原 query，不让评估崩掉（这也是上线要求的降级路径）。
+    """
+    if mode == "none":
+        return query, 0.0, 0
+
+    if mode == "concat":
+        # 拼接会把历史问句完整带进检索查询：零成本，但也会引入噪声，必须实测
+        t0 = time.time()
+        rewritten = " ".join(p for p in [*history, query] if p)
+        return rewritten or query, (time.time() - t0) * 1000, 0
+
+    if mode == "llm":
+        key = (tuple(history), query, mode)
+        if key in _QR_CACHE:
+            return _QR_CACHE[key]
+
+        from openai import AsyncOpenAI
+
+        client = AsyncOpenAI(api_key=settings.qwen_api_key, base_url=settings.qwen_base_url)
+        context = "\n".join(f"用户：{h}" for h in history) if history else "（无历史对话）"
+        prompt = (
+            "你是电商客服的检索查询改写器。根据对话历史，把当前用户的问题改写成一句"
+            "自包含、可直接用于检索的问句。\n"
+            "要求：补齐历史里出现过的实体与指代，保持原问题意图，不要回答，不要解释。\n"
+            "只输出改写后的问句本身，不超过 40 字。\n\n"
+            f"对话历史：\n{context}\n\n当前问题：{query}"
+        )
+        t0 = time.time()
+        try:
+            resp = await client.chat.completions.create(
+                model=settings.intent_model or settings.llm_model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.2,
+                extra_body=settings.thinking_extra(False),
+            )
+            rewritten = (resp.choices[0].message.content or "").strip()
+            calls = 1
+        except Exception as exc:  # 改写失败不该让整轮评估崩掉
+            print(f"[qr] 改写失败，降级为原 query：{type(exc).__name__}: {exc}")
+            rewritten, calls = "", 0
+
+        elapsed = (time.time() - t0) * 1000
+        if not rewritten:
+            rewritten = query  # 降级：至少保证检索仍能跑
+        out = (rewritten, elapsed, calls)
+        _QR_CACHE[key] = out
+        _QR_COST["calls"] += calls
+        _QR_COST["ms"] += elapsed
+        return out
+
+    raise ValueError(f"未知改写档位：{mode}")
+
+
+def _parse_strategy(spec: str) -> tuple[str, float | str | None, str | None]:
     """解析策略名：'weighted:0.3+xrerank' → ('weighted', 0.3, 'cross')。
 
     语法：`<name>[:<param>][+rerank|+xrerank]`
       - weighted 的 param 是 bm25_weight
       - rrf 的 param 是 k
       - multiquery_union / multiquery_rrf 的 param 是变体个数 N（缺省 3）
+      - qr 的 param 是改写档位 none / concat / llm（非数字，按字符串解析）
       - `+rerank`  走线上降级精排（同源多样性惩罚，脚本内复刻）
       - `+xrerank` 走真 cross-encoder（bge-reranker-v2-m3，需装 FlagEmbedding）
     """
@@ -377,7 +484,13 @@ def _parse_strategy(spec: str) -> tuple[str, float | None, str | None]:
             spec = spec[: -len(suffix)]
             break
     name, _, param = spec.partition(":")
-    return name, (float(param) if param else None), rerank_mode
+    if not param:
+        return name, None, rerank_mode
+    try:
+        return name, float(param), rerank_mode
+    except ValueError:
+        # qr:concat 这类非数字参数按字符串原样返回
+        return name, param, rerank_mode
 
 
 def _fallback_rerank(
@@ -505,10 +618,14 @@ async def eval_strategy(
     k = (wide_k or WIDE_K) if rerank_mode else RECALL_K
 
     per_q = []
+    # Query Rewrite 的累计统计（改写成本与调用次数，用于算额外延迟判据）
+    qr_stats = {"n": 0, "calls": 0, "ms": 0.0}
     for q in queries:
         # 相关 chunk 已在 resolve_qrels 阶段解析成 db_chunk_id
         relevant_db = set(q["relevant_db"])
         query = q["query"]
+        # 只有 qr 策略会改写；其余策略原样使用当前问句
+        rewritten, qr_ms, qr_calls = query, 0.0, 0
 
         if name == "bm25":
             ranked = bm25_search(query, k=k)
@@ -527,6 +644,18 @@ async def eval_strategy(
             n = int(param) if param is not None else 3
             mode = "rrf" if name.endswith("_rrf") else "union"
             ranked = await _multiquery_search(query, n, mode, k=k)
+        elif name == "qr":
+            # 查询改写：改写后仍走 weighted 融合，与基线的差异只来自查询本身
+            mode = str(param) if param is not None else "none"
+            rewritten, qr_ms, qr_calls = await _rewrite_query(
+                q.get("history", []), query, mode
+            )
+            qr_stats["calls"] += qr_calls
+            qr_stats["ms"] += qr_ms
+            qr_stats["n"] += 1
+            b = bm25_search(rewritten, k=k)
+            v = await vector_search(rewritten, k=k)
+            ranked = _weighted_fusion(b, v, None)
         else:
             raise ValueError(f"未知策略：{spec}")
 
@@ -551,6 +680,10 @@ async def eval_strategy(
             "ndcg5": ndcg_at_k(ids, relevant_db, 5),
             "recall5": recall_at_k(ids, relevant_db, 5),
             "allrecall5": all_recall_at_k(ids, relevant_db, 5),
+            # Query Rewrite 明细：改写后的问句与本次改写耗时 / LLM 调用次数
+            "rewritten_query": rewritten,
+            "qr_ms": qr_ms,
+            "qr_calls": qr_calls,
         })
 
     # 总体指标
@@ -590,8 +723,16 @@ async def eval_strategy(
         if g:
             by_difficulty[d] = g
 
-    return {"strategy": spec, "total": total, "by_bucket": by_bucket,
-            "by_difficulty": by_difficulty, "multi": multi, "per_query": per_q}
+    return {
+        "strategy": spec,
+        "total": total,
+        "by_bucket": by_bucket,
+        "by_difficulty": by_difficulty,
+        "multi": multi,
+        "per_query": per_q,
+        # Query Rewrite 统计：改写的 query 条数、LLM 调用次数、累计耗时
+        "qr_stats": qr_stats,
+    }
 
 
 def _multi_stats(per_q: list[dict], key: str | None = None, value: str | None = None) -> dict | None:
@@ -716,6 +857,57 @@ def _print_verdict(results: list[dict]) -> None:
         print(f"  {'allrecall@5（多跳子集）':<22}{best_s:<22}{best_v:.4f}")
 
 
+def _print_qr_verdict(results: list[dict]) -> None:
+    """P3-C-3 判据：Query Rewrite 相对 `qr:none` 基线的逐条对比。
+
+    报四个数：
+        changed_ratio —— 改写改变了 top-5 检索结果的 query 比例
+                        （接近 0 说明改写根本没生效，谈不上收益）
+        improved/worsened —— hit@1 相对基线的逐条升降条数
+        p95_ms —— 改写本身的额外延迟（concat 应≈0，llm 才真正付费）
+
+    上线判据（三条同时满足）：improved − worsened ≥ 4 条、额外 P95 < 300ms、
+    失败能降级回原 query。任一不满足就记「已测并否决」，不写进简历。
+    """
+    qr = [r for r in results if r["strategy"].startswith("qr:")]
+    base = next((r for r in qr if r["strategy"] == "qr:none"), None)
+    if not qr or base is None:
+        return
+
+    b_by = {q["query"]: q for q in base["per_query"]}
+    print("\n" + "=" * 72)
+    print("P3-C-3 判据：Query Rewrite vs qr:none")
+    print("=" * 72)
+    print(
+        f"  {'策略':<14}{'改写改变率':>12}{'hit@1 改善':>12}"
+        f"{'hit@1 恶化':>12}{'额外 P95 ms':>14}"
+    )
+    for r in qr:
+        if r["strategy"] == "qr:none":
+            continue
+        o_by = {q["query"]: q for q in r["per_query"]}
+        changed = improved = worsened = 0
+        for key, bq in b_by.items():
+            oq = o_by.get(key)
+            if oq is None:
+                continue
+            if bq["ranked"] != oq["ranked"]:
+                changed += 1
+            if oq["hit1"] > bq["hit1"]:
+                improved += 1
+            elif oq["hit1"] < bq["hit1"]:
+                worsened += 1
+        ms = sorted(oq["qr_ms"] for oq in r["per_query"] if oq["qr_ms"] > 0)
+        p95 = ms[int(len(ms) * 0.95) - 1] if ms else 0.0
+        calls = r["qr_stats"]["calls"]
+        avg = (r["qr_stats"]["ms"] / calls) if calls else 0.0
+        print(
+            f"  {r['strategy']:<14}{changed / len(b_by):>12.3f}"
+            f"{improved:>12d}{worsened:>12d}{p95:>14.0f}"
+        )
+        print(f"  {'':<14}LLM 调用 {calls} 次，平均 {avg:.0f} ms/次")
+
+
 async def main() -> None:
     parser = argparse.ArgumentParser(description="四路检索基线跑分 + P3-A 消融实验")
     parser.add_argument(
@@ -739,12 +931,17 @@ async def main() -> None:
         "--bm25-tokenizer", default=None,
         help="覆盖 BM25 分词器：char（单字）/ jieba（词典）/ bigram（二元组）",
     )
+    parser.add_argument(
+        "--multiturn", action="store_true",
+        help="改用多轮评估集 queries_multiturn.jsonl，测 Query Rewrite 必须用它",
+    )
     args = parser.parse_args()
 
-    queries = load_queries()
+    queries = load_multiturn_queries() if args.multiturn else load_queries()
+    src = "多轮评估集" if args.multiturn else "单轮评估集"
     rows = await load_chunk_rows()
     queries, skipped = resolve_qrels(queries, rows)
-    print(f"[eval] 索引中 {len(rows)} 个 chunk，标注解析后 {len(queries)} 条 query 有效\n")
+    print(f"[eval] {src}：{src}{len(queries)} 条，索引中 {len(rows)} 个 chunk，标注解析后 {len(queries)} 条 query 有效\n")
 
     if args.bucket:
         queries = [q for q in queries if q.get("bucket") == args.bucket]
@@ -786,7 +983,8 @@ async def main() -> None:
     else:
         _print_table(results)
         _print_verdict(results)
-        note = f"[eval] 统计口径：{len(queries)} 条有效 query"
+        _print_qr_verdict(results)
+        note = f"[eval] 统计口径：{src} {len(queries)} 条有效 query"
         if skipped:
             note += f"（已剔除 {skipped} 条标注无法解析）"
         print(f"\n{note}")
@@ -796,6 +994,13 @@ async def main() -> None:
             print(
                 f"[eval] Multi-Query 成本：LLM 调用 {int(_MQ_COST['calls'])} 次，"
                 f"平均 {avg:.0f} ms/次，缓存 {cached} 条 query 的变体"
+                f"（命中缓存的策略不重复计费）"
+            )
+        if _QR_COST["calls"]:
+            avg = _QR_COST["ms"] / _QR_COST["calls"]
+            print(
+                f"[eval] Query Rewrite 成本：LLM 调用 {int(_QR_COST['calls'])} 次，"
+                f"平均 {avg:.0f} ms/次，缓存 {len(_QR_CACHE)} 条改写结果"
                 f"（命中缓存的策略不重复计费）"
             )
 
